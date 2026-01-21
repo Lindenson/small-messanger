@@ -11,7 +11,7 @@ import {logger} from "@/shared/logger/logger.ts";
 import {useDispatch} from "react-redux";
 import type {AppDispatch} from "@/store/store.ts";
 import type {WSDispatcher, WSMessage} from "@/infrastructure/types.ts";
-
+import toast from "react-hot-toast";
 
 
 export function useWebRTC() {
@@ -45,6 +45,38 @@ export function useWebRTC() {
         },
         [dispatch]
     );
+
+    /* ======================
+       Error handler
+    ====================== */
+    const exceptionHandler = (ex: Error) => logger.error(ex.message, ex);
+
+    const handleInitError = useCallback((err: unknown) => {
+            logger.error("WebRTC init failed", err);
+
+            toast.error(
+                err instanceof DOMException
+                    ? err.message
+                    : "Cannot start video call"
+            );
+
+            remotePeerIdRef.current = null;
+            remoteReadyRef.current = false;
+            pendingIceRef.current = [];
+
+            pcRef.current?.close();
+            pcRef.current = null;
+
+            localStreamRef.current?.getTracks().forEach(t => t.stop());
+            localStreamRef.current = null;
+
+            setLocalStream(null);
+            setRemoteStream(null);
+
+            dispatch({type: "call/localEnd"});
+        }, [dispatch]
+    );
+
 
     /* ======================
        Init peer connection
@@ -104,10 +136,7 @@ export function useWebRTC() {
 
             remotePeerIdRef.current = peerId;
             await init().catch((err) => {
-                logger.error("video call error", err.message);
-                remotePeerIdRef.current = null;
-                remoteReadyRef.current = false;
-                pcRef.current = null;
+                handleInitError(err);
                 return;
             })
 
@@ -122,7 +151,7 @@ export function useWebRTC() {
                 offer,
             });
         },
-        [dispatch, init, send]
+        [dispatch, handleInitError, init, send]
     );
 
     /* ======================
@@ -259,7 +288,6 @@ export function useWebRTC() {
         typeof d?.type === "string" &&
         d.type.startsWith("call:");
 
-    const exceptionHandler = (ex: Error) => logger.error(ex.message, ex);
 
     /* ======================
        API

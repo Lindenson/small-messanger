@@ -12,11 +12,17 @@ import LoginPage from "@/pages/LoginPage";
 import LogoutPage from "@/pages/LogoutPage";
 import {RequireAuth} from "@/features/auth/ui/RequireAuth";
 import AddUser from "@/pages/AddUser.tsx";
-
+import {useWebSocketConnection} from "@/infrastructure/hooks/useWebSocketConnection.ts";
+import {Toaster} from "react-hot-toast";
 
 function App() {
 
     const dispatch = useDispatch<AppDispatch>();
+
+    /* ======================
+    WebSocket connection
+    ====================== */
+    useWebSocketConnection();
 
     useEffect(() => {
         const id = localStorage.getItem(LS_ID);
@@ -60,6 +66,7 @@ function App() {
                 <Route path="/login" element={<LoginPage onLogin={handleLogin}/>}/>
                 <Route path="/logout" element={<LogoutPage onLogout={handleLogout}/>}/>
             </Routes>
+            <Toaster/>
         </BrowserRouter>
     );
 }

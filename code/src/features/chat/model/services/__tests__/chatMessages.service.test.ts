@@ -124,7 +124,7 @@ describe("chatMessagesService", () => {
         const dispatch = vi.fn();
         const thunk = vi.fn();
 
-        // @ts-ignore
+        //@ts-expect-error("no need to use types")
         chatApi.endpoints.getChatHistory.initiate.mockReturnValue(thunk);
 
         chatMessagesService.reloadChatHistory(dispatch, "user1", "chat123");

@@ -6,11 +6,11 @@ import path from "path";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: {
-    sourcemap: true, // 🔹 включаем sourcemaps
+    sourcemap: true,
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "src"), // теперь @ = src/
+      "@": path.resolve(__dirname, "src"),
     },
   },
 });

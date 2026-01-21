@@ -13,9 +13,6 @@ import {useWebRTC} from "@/features/call/hooks";
 import type {RootState} from "@/store/store.ts";
 import type {FromOffer} from "@/features/call/model/types";
 
-import {useWebSocketConnection} from "@/infrastructure/hooks/useWebSocketConnection.ts";
-import {Toaster} from "react-hot-toast";
-
 
 export default function Messenger() {
     const navigate = useNavigate();
@@ -42,11 +39,6 @@ export default function Messenger() {
     Call status from Redux
     ====================== */
     const callStatus = useSelector((state: RootState) => state.call.status);
-
-    /* ======================
-    WebSocket connection
-    ====================== */
-    useWebSocketConnection();
 
     /* ======================
        Derived
@@ -108,7 +100,6 @@ export default function Messenger() {
                     }}
                 />
             )}
-            <Toaster/>
         </div>
     );
 }
