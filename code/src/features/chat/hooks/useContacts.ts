@@ -1,50 +1,103 @@
-import {useCallback, useEffect, useState} from "react";
-import {fetchChatContacts} from "../rest/chatApi.ts";
-import type {Contact} from "@/features/chat/model/types.ts";
 import {useSelector} from "react-redux";
-import type {RootState} from "@/store/store.ts";
-import {isNotLogged} from "@/shared/utils/checks.ts";
+import type {RootState} from "@/store/store";
+import {useGetChatsQuery} from "@/features/chat/rest/chatApi";
+import type {Contact} from "@/features/chat/model/types";
+import {isNotLogged} from "@/shared/utils/checks";
+import {logger} from "@/shared/logger/logger.ts";
+import {useGetUsersByIdsQuery} from "@/features/chat/rest/contactsApi";
+import {useEffect, useMemo, useRef} from "react";
+import {skipToken} from "@reduxjs/toolkit/query/react";
+import toast from "react-hot-toast";
 
 
 export function useContacts() {
-    const [contacts, setContacts] = useState<Contact[]>([]);
     const myId = useSelector((state: RootState) => state.user.id);
+    const skip = isNotLogged(myId);
+
+    const {
+        data: contactIds = [],
+        isLoading: isLoadingIds,
+        isError: isErrorIds,
+    } = useGetChatsQuery({ myId }, { skip });
+
+    const usersQueryArg =
+        !skip && contactIds.length > 0
+            ? { ids: contactIds }
+            : skipToken;
+
+    const {
+        data: contactsData = [],
+        isLoading: isLoadingUsers,
+        isError: isErrorUsers,
+    } = useGetUsersByIdsQuery(usersQueryArg);
+
+
+    const contacts = useMemo(() => {
+        if (isErrorIds || isErrorUsers) {
+            logger.error("contacts error", { myId });
+            return [];
+        }
+        if (isLoadingIds || isLoadingUsers) return [];
+        return contactsData?.filter(c => c.id !== myId) ?? [];
+    }, [
+        contactsData,
+        isLoadingIds,
+        isLoadingUsers,
+        isErrorIds,
+        isErrorUsers,
+        myId,
+    ]);
+
+    const getContactById = useMemo(
+        () => (id: string): Contact | null =>
+            contacts.find(c => c.id === id) ?? null,
+        [contacts]
+    );
+
+    const getContactByName = useMemo(
+        () => (name: string): Contact | null =>
+            contacts.find(c => c.name === name) ?? null,
+        [contacts]
+    );
+
+
+    const usersLoadingToastId = useRef<string | null>(null);
 
     useEffect(() => {
-        let alive = true;
-        if (isNotLogged(myId)) return;
+        // ⏳ loading
+        if ((isLoadingUsers || isLoadingIds) && !usersLoadingToastId.current) {
+            usersLoadingToastId.current = toast.loading("Loading contacts...");
+            return;
+        }
 
-        fetchChatContacts()
-            .then(data => {
-                if (alive) {
-                    data = data.filter((contact) => contact.id !== myId);
-                    setContacts(data);
-                    console.debug("for", myId, "fetchedChatContacts", data)
-                }
-            })
-            .catch(console.error);
+        // ❌ error
+        if ((isErrorUsers || isErrorIds) && usersLoadingToastId.current) {
+            logger.error("getUsersByIds failed", { myId });
 
-        return () => {
-            alive = false;
-        };
-    }, [myId]);
+            toast.error("Load contacts error", {
+                id: usersLoadingToastId.current,
+            });
+
+            usersLoadingToastId.current = null;
+            return;
+        }
+
+        // ✅ success
+        if (!(isLoadingUsers || isLoadingIds) && usersLoadingToastId.current) {
+            toast.dismiss(usersLoadingToastId.current);
+            usersLoadingToastId.current = null;
+        }
+    }, [isLoadingUsers, isErrorUsers, myId, isLoadingIds, isErrorIds]);
 
 
-    const getContactById = useCallback(
-        (id: string) => {
-            console.debug("getContactById ", id, contacts);
-            return contacts.find(c => c.id === id) ?? null;
-        },
-        [contacts]
-    );
 
-    const getContactByName = useCallback(
-        (name: string)=> {
-            console.debug("getContactByName ", name, contacts);
-            return contacts.find(c => c.name === name) ?? null;
-        },
-        [contacts]
-    );
-
-    return {contacts, setContacts, getContactById, getContactByName};
+    return {
+        contacts,
+        isLoadingIds,
+        isLoadingUsers,
+        isErrorIds,
+        isErrorUsers,
+        getContactById,
+        getContactByName,
+    };
 }

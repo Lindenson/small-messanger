@@ -7,12 +7,14 @@ import type {
     IncomingWebRTCMessage,
     OutgoingWebRTCMessage
 } from "@/features/call/model/types.ts";
+import {logger} from "@/shared/logger/logger.ts";
+import {useDispatch} from "react-redux";
+import type {AppDispatch} from "@/store/store.ts";
+import type {WSDispatcher, WSMessage} from "@/infrastructure/types.ts";
 
-type DispatchFn = (action: { type: string; payload?: unknown }) => void;
-type UseWebRTCArgs = { dispatch?: DispatchFn; };
 
 
-export function useWebRTC({dispatch}: UseWebRTCArgs) {
+export function useWebRTC() {
     /* ======================
        Refs (NOT reactive)
     ====================== */
@@ -28,6 +30,11 @@ export function useWebRTC({dispatch}: UseWebRTCArgs) {
     ====================== */
     const [localStream, setLocalStream] = useState<MediaStream | null>(null);
     const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+
+    /* ======================
+       Storage
+    ====================== */
+    const dispatch = useDispatch<AppDispatch>();
 
     /* ======================
        WS send
@@ -84,7 +91,7 @@ export function useWebRTC({dispatch}: UseWebRTCArgs) {
                 dispatch?.({type: "call/incomingRemoteEnd"});
             }
         };
-    }, [send]);
+    }, [dispatch, send]);
 
     /* ======================
        Start call (caller)
@@ -92,10 +99,17 @@ export function useWebRTC({dispatch}: UseWebRTCArgs) {
     const startCall = useCallback(
         async (peerId: string) => {
             if (pcRef.current) return; // 🔒 уже в звонке
+            logger.debug("video call starting with", peerId);
             dispatch?.({type: "call/outgoingCall", payload: peerId});
 
             remotePeerIdRef.current = peerId;
-            await init();
+            await init().catch((err) => {
+                logger.error("video call error", err.message);
+                remotePeerIdRef.current = null;
+                remoteReadyRef.current = false;
+                pcRef.current = null;
+                return;
+            })
 
             if (!pcRef.current) return;
             const pc: RTCPeerConnection = pcRef.current;
@@ -121,7 +135,7 @@ export function useWebRTC({dispatch}: UseWebRTCArgs) {
                 send({type: "call:end", to: from});
                 return;
             }
-
+            logger.debug("video call accepting offer");
             dispatch?.({type: "call/acceptCall"});
 
             remotePeerIdRef.current = from;
@@ -155,6 +169,7 @@ export function useWebRTC({dispatch}: UseWebRTCArgs) {
     const handleAnswer = useCallback(async ({from, answer}: FromAnswer) => {
         if (!pcRef.current) return;
         if (pcRef.current.signalingState !== "have-local-offer") return;
+        logger.debug("video call handling answer");
 
         remotePeerIdRef.current = from;
         await pcRef.current.setRemoteDescription(answer);
@@ -230,14 +245,21 @@ export function useWebRTC({dispatch}: UseWebRTCArgs) {
     /* ======================
        WS dispatcher
     ====================== */
-    const dispatchMessages = useCallback(
-        (data: IncomingWebRTCMessage) => {
-            if (data.type === "call:answer") handleAnswer(data);
-            if (data.type === "call:ice") addIce(data);
+    const dispatchMessages: WSDispatcher = useCallback(
+        (data: WSMessage) => {
+            if (!isIncomingWebRTCMessage(data)) return;
+            if (data.type === "call:answer") handleAnswer(data).catch(exceptionHandler);
+            if (data.type === "call:ice") addIce(data).catch(exceptionHandler);
             if (data.type === "call:end") endCall();
         },
         [addIce, endCall, handleAnswer]
     );
+
+    const isIncomingWebRTCMessage = (d: WSMessage): d is IncomingWebRTCMessage =>
+        typeof d?.type === "string" &&
+        d.type.startsWith("call:");
+
+    const exceptionHandler = (ex: Error) => logger.error(ex.message, ex);
 
     /* ======================
        API

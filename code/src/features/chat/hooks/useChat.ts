@@ -1,32 +1,43 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useDispatch, useSelector } from "react-redux";
+import {useEffect, useMemo, useState} from "react";
+import {useDispatch, useSelector} from "react-redux";
+import {clearIncoming} from "@/infrastructure/slices/websocketSlice";
+import {setSelectedChatId} from "@/features/chat/model/slices/chatUiSlice";
+import type {AppDispatch, RootState} from "@/store/store";
 
-import { enqueueMessage } from "../model/slices/outboxSlice";
-import { flushOutbox } from "../thunk/sendOutboxThunk";
-import { clearIncoming } from "../model/slices/websocketSlice";
+import {useChatMessages} from "./useChatMessages";
+import {useUnreadChats} from "./useUnreadChats";
+import {useContacts} from "./useContacts";
 
-import type { AppDispatch, RootState } from "@/store/store.ts";
-
-import { useChatMessages } from "./useChatMessages";
-import { useUnreadChats } from "./useUnreadChats";
-import { useContacts } from "./useContacts.ts";
-import { toOutboxMessage } from "@/features/chat/model/mapper.ts";
+import {logger} from "@/shared/logger/logger.ts";
 import type {Contact} from "@/features/chat/model/types.ts";
+import type {WSDispatcher} from "@/infrastructure/types.ts";
+import {chatMessagesService} from "@/features/chat/model/services/chatMessages.service.ts";
 
-export function useChat() {
+type UseChatProps = {
+    router: WSDispatcher
+}
+
+export function useChat(props: UseChatProps) {
     const dispatch = useDispatch<AppDispatch>();
 
     /* ======================
-       UI state
+       UI state (local)
     ====================== */
-    const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
     const [messageInput, setMessageInput] = useState("");
     const [searchQuery, setSearchQuery] = useState("");
 
     /* ======================
+       Global state
+    ====================== */
+    const myId = useSelector((state: RootState) => state.user.id);
+    const selectedChatId = useSelector(
+        (state: RootState) => state.chatUi.selectedChatId
+    );
+
+    /* ======================
        Contacts
     ====================== */
-    const { contacts, getContactById } = useContacts();
+    const {contacts, getContactById} = useContacts();
 
     const filteredChats = useMemo(
         () =>
@@ -36,45 +47,17 @@ export function useChat() {
         [contacts, searchQuery]
     );
 
-    /* ======================
-        Chat selection
-    ====================== */
-    const selectedChat = useMemo(
-        () => {
-            console.debug("selectedChat", selectedChatId);
-            return selectedChatId? getContactById(selectedChatId) : null;
-        },
+    const selectedChat: Contact | null = useMemo(
+        () => (selectedChatId ? getContactById(selectedChatId) : null),
         [selectedChatId, getContactById]
     );
 
     /* ======================
-       Refs (WS safe)
-    ====================== */
-    const selectedChatRef = useRef<Contact | null>(null);
-    useEffect(() => {
-        selectedChatRef.current = selectedChat;
-    }, [selectedChat]);
-
-    /* ======================
-       User info
-    ====================== */
-    const myId = useSelector((state: RootState) => state.user.id);
-
-    /* ======================
-       Derived
-    ====================== */
-    const isChatOpen = selectedChat !== null;
-
-    /* ======================
        Messages / unread
     ====================== */
-    const { unreadChats, markUnread, markRead } = useUnreadChats();
-    const {
-        messagesMap,
-        reloadChatHistory,
-        handleIncomingMessage,
-        clearChat,
-    } = useChatMessages();
+    const {unreadChats, markUnread, markRead} = useUnreadChats();
+    const {messages, reloadChatHistory, handleIncomingMessage, clearChat} =
+        useChatMessages();
 
     /* ======================
        WebSocket incoming
@@ -86,19 +69,22 @@ export function useChat() {
     useEffect(() => {
         if (!lastIncoming) return;
 
+        /* ===== MESSAGES ===== */
         if (lastIncoming.type === "message") {
-            handleIncomingMessage({
-                msg: lastIncoming.payload,
-                onUnread: (chatId: string) => {
-                    if (chatId !== selectedChatRef.current?.id) {
-                        markUnread(chatId);
-                    }
-                },
-            });
+            const msg = lastIncoming.payload;
+            const chatId = msg.from === myId ? msg.to : msg.from;
+
+            handleIncomingMessage(msg);
+
+            if (chatId !== selectedChatId) {
+                markUnread(chatId);
+            }
         }
+        /* ===== DISPATCH THE REST AND DISCARD===== */
+        props.router(lastIncoming);
 
         dispatch(clearIncoming());
-    }, [dispatch, handleIncomingMessage, lastIncoming, markUnread, myId]);
+    }, [lastIncoming, myId, selectedChatId, handleIncomingMessage, markUnread, dispatch, props]);
 
     /* ======================
        Reconnect handling
@@ -107,44 +93,29 @@ export function useChat() {
 
     useEffect(() => {
         if (wsStatus !== "connected") return;
-        if (selectedChatRef.current === null) return;
+        if (!selectedChatId) return;
 
-        console.debug("selectedChatId", selectedChatRef.current);
-        reloadChatHistory(selectedChatRef.current).catch(console.error);
-    }, [wsStatus, myId, reloadChatHistory]);
+        reloadChatHistory().catch(logger.error);
+    }, [wsStatus, selectedChatId, reloadChatHistory]);
 
     /* ======================
        Actions
     ====================== */
     async function openChat(chatId: string) {
-        setSelectedChatId(chatId);
+        dispatch(setSelectedChatId(chatId));
         markRead(chatId);
-        const contact = getContactById(chatId);
-        if (!contact) return;
-        await reloadChatHistory(contact);
+        //await reloadChatHistory();
     }
 
     function sendMessage(text: string) {
-        if (!selectedChat || !text.trim()) return;
+        if (!selectedChatId || !text.trim()) return;
         setMessageInput("");
-
-        dispatch(
-            enqueueMessage(
-                toOutboxMessage({
-                    from: myId,
-                    to: selectedChat.id,
-                    text,
-                })
-            )
-        );
-        dispatch(flushOutbox());
+        chatMessagesService.enqueueChatMessage(dispatch, text, myId, selectedChatId);
     }
 
     async function deleteChat() {
-        if (!selectedChat) return;
-
-        await clearChat(selectedChat);
-        setSelectedChatId(null);
+        await clearChat();
+        dispatch(setSelectedChatId(null));
     }
 
     return {
@@ -152,7 +123,6 @@ export function useChat() {
         filteredChats,
         selectedChat,
         selectedChatId,
-        setSelectedChatId,
         messageInput,
         setMessageInput,
         searchQuery,
@@ -161,7 +131,6 @@ export function useChat() {
         sendMessage,
         deleteChat,
         unreadChats,
-        messagesMap,
-        isChatOpen,
+        messages,
     };
 }

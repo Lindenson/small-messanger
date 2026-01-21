@@ -2,8 +2,8 @@ import {useState} from "react";
 import {useNavigate} from "react-router-dom";
 import {useSelector} from "react-redux";
 
-import ChatList from "@/features/chat/ui/ChatList.jsx";
-import ChatWindow from "@/features/chat/ui/ChatWindow.jsx";
+import ChatList from "@/features/chat/ui/ChatList.tsx";
+import ChatWindow from "@/features/chat/ui/ChatWindow.js";
 import ConfirmModal from "@/widgets/modal/ConfirmModal.jsx";
 import VideoCall from "@/features/call/ui/VideoCall";
 
@@ -13,21 +13,25 @@ import {useWebRTC} from "@/features/call/hooks";
 import type {RootState} from "@/store/store.ts";
 import type {FromOffer} from "@/features/call/model/types";
 
-import {useWebSocketConnection} from "@/infrastructure/useWebSocketConnection.ts";
+import {useWebSocketConnection} from "@/infrastructure/hooks/useWebSocketConnection.ts";
+import {Toaster} from "react-hot-toast";
 
 
 export default function Messenger() {
     const navigate = useNavigate();
 
-    /* ======================
-       Chat hook
-    ====================== */
-    const chat = useChat();
 
     /* ======================
        WebRTC hook
     ====================== */
-    const webRTC = useWebRTC({dispatch: undefined});
+    const webRTC = useWebRTC();
+
+    /* ======================
+       Chat hook
+    ====================== */
+    const chat = useChat(
+        { router: webRTC.dispatchMessages }
+    );
 
     /* ======================
        Delete modal
@@ -47,7 +51,6 @@ export default function Messenger() {
     /* ======================
        Derived
     ====================== */
-    const isChatOpen = chat.isChatOpen;
     const peerContact = chat.selectedChat ?? null;
     const myName = useSelector((state: RootState) => state.user.name);
 
@@ -59,12 +62,10 @@ export default function Messenger() {
             {/* ===== Chat List ===== */}
             <ChatList
                 chats={chat.filteredChats}
+                openChat={chat.openChat}
                 unreadChats={chat.unreadChats}
                 search={chat.searchQuery}
                 setSearch={chat.setSearchQuery}
-                selectedChat={chat.selectedChatId}
-                setSelectedChat={chat.openChat}
-                isChatOpen={isChatOpen}
                 myName={myName}
                 onLogout={() => navigate("/logout")}
             />
@@ -72,16 +73,13 @@ export default function Messenger() {
             {/* ===== Chat Window ===== */}
             <ChatWindow
                 chat={chat.selectedChat}
-                messages={chat.messagesMap}
+                messages={chat.messages}
                 inputText={chat.messageInput}
                 setInputText={chat.setMessageInput}
                 sendMessage={chat.sendMessage}
-                setSelectedChat={chat.setSelectedChatId}
-                isChatOpen={isChatOpen}
-                selectedChat={chat.selectedChatId}
                 onDeleteChat={() => setShowDeleteModal(true)}
                 onCall={async () => {
-                    if (peerContact) await webRTC.startCall(peerContact.name);
+                    if (peerContact) await webRTC.startCall(peerContact.id);
                 }}
             />
 
@@ -110,6 +108,7 @@ export default function Messenger() {
                     }}
                 />
             )}
+            <Toaster/>
         </div>
     );
 }

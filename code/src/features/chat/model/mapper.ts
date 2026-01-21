@@ -1,5 +1,6 @@
 import {nanoid} from "@reduxjs/toolkit";
-import type {ChatMessageView, DomainChatMessage, OutboxMessage} from "@/features/chat/model/types.ts";
+import type {ChatMessageView, OutboxMessage} from "@/features/chat/model/types.ts";
+import type {ChatMessage} from "@/features/chat/model/schema/domainChatMessage.schema.ts";
 
 type SendChatMessageCommand = {
     from: string;
@@ -8,7 +9,7 @@ type SendChatMessageCommand = {
 };
 
 export function toChatMessageView(
-    msg: DomainChatMessage,
+    msg: ChatMessage,
     myId: string
 ): ChatMessageView {
     return {

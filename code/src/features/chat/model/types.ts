@@ -1,28 +1,14 @@
-
 // ===========================
-// WebSocket layer
+// Domain: Message
 // ===========================
 
-import type {IncomingWebRTCMessage} from "@/features/call/model/types.ts";
+export type MessageId = string;
 
-type WSStatus = "disconnected" | "connecting" | "connected"
-
-export type WebSocketState = {
-    status: WSStatus;
-    lastIncoming: IncomingWSMessage | null;
-    lastOutgoing: OutgoingWSMessage | null;
-    error: string | null;
-};
-
-export type IncomingWSMessage =
-    | { type: "message"; payload: DomainChatMessage }
-    | IncomingWebRTCMessage;
-
-
-export type OutgoingWSMessage = {
-    type: string;
-    payload?: unknown;
-};
+export type ChatMessageStatus =
+    | "pending"
+    | "sending"
+    | "sent"
+    | "failed";
 
 
 // ===========================
@@ -60,39 +46,11 @@ export type ChatMessageView = {
     status: ChatMessageStatus;
 };
 
-export type ChatMessagesMap = Map<string, ChatMessageView[]>;
-
 export type Contact = {
     id: string;
     name: string;
     last: string;
+    email: string;
     online: boolean;
 };
 
-// ===========================
-// Domain: Message
-// ===========================
-
-export type MessageId = string;
-export type ChatId = string;
-
-export type ChatMessageStatus =
-    | "pending"
-    | "sending"
-    | "sent"
-    | "failed";
-
-export type DomainChatMessage = {
-    id: MessageId;
-    chatId: ChatId;
-
-    from: string;
-    to: string;
-
-    text: string;
-
-    createdAt: number;
-    status: ChatMessageStatus;
-
-    idempotencyKey: string;
-};

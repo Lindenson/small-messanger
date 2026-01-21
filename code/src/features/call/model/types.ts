@@ -1,3 +1,5 @@
+import type {WSMessage} from "@/infrastructure/types.ts";
+
 type CallStatus = "idle" | "ringing" | "calling" | "connecting" | "in_call";
 
 export interface CallState {
@@ -7,10 +9,10 @@ export interface CallState {
 }
 
 export type IncomingWebRTCMessage =
-    | { type: "call:offer"; from: string; offer: RTCSessionDescriptionInit }
-    | { type: "call:answer"; from: string; answer: RTCSessionDescriptionInit }
-    | { type: "call:ice"; from: string; candidate: RTCIceCandidateInit }
-    | { type: "call:end"; from: string };
+    | WSMessage & { type: "call:offer"; from: string; offer: RTCSessionDescriptionInit }
+    | WSMessage & { type: "call:answer"; from: string; answer: RTCSessionDescriptionInit }
+    | WSMessage & { type: "call:ice"; from: string; candidate: RTCIceCandidateInit }
+    | WSMessage & { type: "call:end"; from: string };
 
 export type OutgoingWebRTCMessage =
     | { type: "call:offer"; to: string; offer: RTCSessionDescriptionInit }

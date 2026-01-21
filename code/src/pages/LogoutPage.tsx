@@ -10,10 +10,14 @@ export default function LogoutPage({ onLogout }: LogoutPageProps) {
     const navigate = useNavigate();
     const dispatch = useDispatch<AppDispatch>();
 
-    const handleClick = () => {
+    const handleLogout = () => {
         onLogout();
         dispatch({ type: "ws/disconnect" });
         navigate("/login", { replace: true });
+    };
+
+    const handleCancel = () => {
+        navigate(-1);
     };
 
     return (
@@ -25,12 +29,21 @@ export default function LogoutPage({ onLogout }: LogoutPageProps) {
                     ¿Seguro que quieres salir?
                 </p>
 
-                <button
-                    onClick={handleClick}
-                    className="w-full bg-red-600 text-white py-2 rounded"
-                >
-                    Salir
-                </button>
+                <div className="flex gap-3">
+                    <button
+                        onClick={handleCancel}
+                        className="w-full border py-2 rounded hover:bg-gray-100"
+                    >
+                        Cancelar
+                    </button>
+
+                    <button
+                        onClick={handleLogout}
+                        className="w-full bg-red-600 text-white py-2 rounded hover:bg-red-700"
+                    >
+                        Salir
+                    </button>
+                </div>
             </div>
         </div>
     );

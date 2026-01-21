@@ -1,92 +1,72 @@
-import {useCallback, useState} from "react";
-import {deleteChatHistory, fetchChatHistory} from "@/features/chat/rest/chatApi.js";
-import type {ChatMessagesMap, ChatMessageView, Contact, DomainChatMessage} from "@/features/chat/model/types.ts";
-import {toChatMessageView} from "@/features/chat/model/mapper.ts";
-import {useSelector} from "react-redux";
-import type {RootState} from "@/store/store.ts";
+import {useCallback} from "react";
+import {useDispatch, useSelector} from "react-redux";
+import {skipToken} from "@reduxjs/toolkit/query/react";
 
-
-interface HandleIncomingParams {
-    msg: DomainChatMessage;
-    onUnread?: (chatId: string) => void;
-}
+import {chatApi} from "@/features/chat/rest/chatApi";
+import {toChatMessageView} from "@/features/chat/model/mapper";
+import type {AppDispatch, RootState} from "@/store/store";
+import type {ChatMessage} from "@/features/chat/model/schema/domainChatMessage.schema";
+import {chatMessagesService} from "@/features/chat/model/services/chatMessages.service";
 
 export function useChatMessages() {
-
-    /* ======================
-       Messages View Storage
-    ====================== */
-    const [messagesMap, setMessagesMap] = useState<ChatMessagesMap>(new Map());
-
-    /* ======================
-       User info
-    ====================== */
     const myId = useSelector((state: RootState) => state.user.id);
+    const dispatch = useDispatch<AppDispatch>();
 
-
-    // ===== Set full history =====
-    const setChatHistory = useCallback(
-        (chatId: string, messages: ChatMessageView[]) => {
-            setMessagesMap((prev) => {
-                const next = new Map(prev);
-                next.set(chatId, messages);
-                return next;
-            });
-        },
-        []
+    /* ======================
+       Selected chat (global)
+    ====================== */
+    const selectedChatId = useSelector(
+        (state: RootState) => state.chatUi.selectedChatId
     );
 
-    // ===== Reload history from backend =====
+    /* ======================
+       RTK Query: history
+    ====================== */
+    const {data = [], isLoading} = chatApi.useGetChatHistoryQuery(
+        selectedChatId ? {myId, chatId: selectedChatId} : skipToken
+    );
+
+    const [deleteHistory] = chatApi.useDeleteChatHistoryMutation();
+
+    /* ======================
+       Reload (force refetch)
+    ====================== */
     const reloadChatHistory = useCallback(
-        async (chat: Contact) => {
-            console.debug("reloadChatHistory", chat);
-            try {
-                const rawHistory = await fetchChatHistory(myId, chat.id);
-                const normalized: ChatMessageView[] = rawHistory.map((msg: DomainChatMessage) =>
-                    toChatMessageView(msg, myId)
-                );
-
-                setChatHistory(chat.id, normalized);
-            } catch (e) {
-                console.error("Reload chat history error", e);
-            }
+        async () => {
+            chatMessagesService.reloadChatHistory(dispatch, myId, selectedChatId);
         },
-        [myId, setChatHistory]
+        [dispatch, myId, selectedChatId]
     );
 
-    // ===== Handle incoming WS message =====
+    /* ======================
+       Handle incoming WS message
+       (patch RTK Query cache)
+    ====================== */
     const handleIncomingMessage = useCallback(
-        ({msg, onUnread}: HandleIncomingParams) => {
-            console.debug("handleIncomingMessage", msg);
-            const chatId = msg.from === myId ? msg.to : msg.from;
-
-            if (msg.from !== myId) {
-                onUnread?.(chatId);
-            }
-
-            setMessagesMap((prev) => {
-                const next = new Map(prev);
-                const chatMessages = next.get(chatId) ?? [];
-                next.set(chatId, [...chatMessages, toChatMessageView(msg, myId)]);
-                return next;
-            });
+        (msg: ChatMessage) => {
+            chatMessagesService.incomingMessage(dispatch, myId, msg);
         },
-        [myId]
+        [dispatch, myId]
     );
 
-    // ===== Clear chat =====
-    const clearChat = useCallback(async (chat: Contact) => {
-        console.debug("clearChat", chat);
-        await deleteChatHistory(myId, chat.id);
-        setMessagesMap((prev) => {
-            const next = new Map(prev);
-            next.delete(chat.id);
-            return next;
-        });
-    }, [myId]);
+    /* ======================
+       Clear chat
+    ====================== */
+    const clearChat = useCallback(
+        async () => {
+            await chatMessagesService.clearChatHistory(dispatch, deleteHistory, myId, selectedChatId);
+        },
+        [deleteHistory, myId, selectedChatId, dispatch]
+    );
+
+    /* ======================
+       View mapping
+    ====================== */
+    const messages = data.map((msg) => toChatMessageView(msg, myId));
 
     return {
-        messagesMap,
+        messages,
+        isLoading,
         reloadChatHistory,
         handleIncomingMessage,
         clearChat,

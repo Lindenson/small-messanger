@@ -180,6 +180,33 @@ app.delete("/chat/:clientA/:clientB", (req, res) => {
   res.status(204).end();
 });
 
+
+/**
+ * GET /chats/:clientId
+ * Возвращает список всех собеседников, с которыми есть чат
+ */
+app.get("/chats/:clientId", (req, res) => {
+  const { clientId } = req.params;
+
+  if (!clientId) {
+    return res.status(400).json({ error: "clientId reqired" });
+  }
+
+  const contactsSet = new Set();
+
+  for (const chatId of chats.keys()) {
+    const [a, b] = chatId.split("_");
+
+    if (a === clientId) contactsSet.add(b);
+    else if (b === clientId) contactsSet.add(a);
+  }
+
+  const contacts = Array.from(contactsSet);
+  res.json(contacts);
+});
+
+
+
 /* =====================
    Start server
 ===================== */

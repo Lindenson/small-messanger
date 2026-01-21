@@ -1,0 +1,16 @@
+{
+  "common": {
+    "search": "Search",
+    "cancel": "Cancel",
+    "loading": "Loading..."
+  },
+
+  "addUser": {
+    "title": "Add user",
+    "placeholder": "Email or ID",
+    "confirm": "Add",
+    "notFound": "User not found",
+    "error": "Failed to search user",
+    "added": "User added"
+  }
+}

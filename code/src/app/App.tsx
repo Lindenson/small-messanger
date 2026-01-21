@@ -5,15 +5,17 @@ import {initNotificationSound} from "@/shared/sound/sound.js";
 import type {AppDispatch} from "@/store/store";
 import {useDispatch} from "react-redux";
 
-import {clearUser, markInitialized, setUser} from "@/features/auth/slices/userSlice";
-import {RequireAuth} from "@/features/auth/ui/RequireAuth.tsx";
-import Messenger from "@/pages/Messenger.tsx";
-import LoginPage from "@/pages/LoginPage";
-import LogoutPage from "@/pages/LogoutPage.tsx";
 import {LS_ID, LS_NAME} from "@/shared/config/ls.ts";
+import {clearUser, markInitialized, setUser} from "@/features/auth/slices/userSlice";
+import Messenger from "@/pages/Messenger";
+import LoginPage from "@/pages/LoginPage";
+import LogoutPage from "@/pages/LogoutPage";
+import {RequireAuth} from "@/features/auth/ui/RequireAuth";
+import AddUser from "@/pages/AddUser.tsx";
 
 
 function App() {
+
     const dispatch = useDispatch<AppDispatch>();
 
     useEffect(() => {
@@ -43,11 +45,15 @@ function App() {
     return (
         <BrowserRouter>
             <Routes>
-                <Route
-                    path="/"
-                    element={
+                <Route path="/" element={
                         <RequireAuth>
                             <Messenger/>
+                        </RequireAuth>
+                    }
+                />
+                <Route path="/add" element={
+                        <RequireAuth>
+                            <AddUser/>
                         </RequireAuth>
                     }
                 />
@@ -57,6 +63,5 @@ function App() {
         </BrowserRouter>
     );
 }
-
 
 export default App;

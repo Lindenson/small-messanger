@@ -3,7 +3,8 @@ import {configureStore} from "@reduxjs/toolkit";
 // Reducers
 import userReducer from "@/features/auth/slices/userSlice";
 import callReducer from "@/features/call/model/slices/callSlice";
-import wsReducer from "@/features/chat/model/slices/websocketSlice";
+import wsReducer from "@/infrastructure/slices/websocketSlice.ts";
+import chatUiReducer from "@/features/chat/model/slices/chatUiSlice";
 import outboxReducer, {hydrateOutbox, markPersisted} from "@/features/chat/model/slices/outboxSlice";
 
 
@@ -13,6 +14,8 @@ import {websocketMiddleware} from "@/infrastructure/middleware/wsMiddleware.ts";
 
 // DB functions
 import {loadOutboxFromDB, saveOutboxToDB} from "@/features/chat/db/db";
+import {chatApi} from "@/features/chat/rest/chatApi.ts";
+import {contactsApi} from "@/features/chat/rest/contactsApi.ts";
 
 
 export const store = configureStore({
@@ -20,12 +23,18 @@ export const store = configureStore({
         call: callReducer,
         ws: wsReducer,
         outbox: outboxReducer,
-        user: userReducer
+        user: userReducer,
+        chatUi: chatUiReducer,
+        [chatApi.reducerPath]: chatApi.reducer,
+        [contactsApi.reducerPath]: contactsApi.reducer,
     },
     middleware: (getDefaultMiddleware) =>
-        getDefaultMiddleware().concat(websocketMiddleware, callMiddleware),
+        getDefaultMiddleware().concat(
+            chatApi.middleware,
+            contactsApi.middleware,
+            websocketMiddleware,
+            callMiddleware),
 });
-
 
 store.subscribe(() => {
     const state = store.getState().outbox;

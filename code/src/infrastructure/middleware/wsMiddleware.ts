@@ -1,5 +1,4 @@
 import type {Middleware, PayloadAction} from "@reduxjs/toolkit";
-
 import {
     connected,
     connecting,
@@ -7,12 +6,13 @@ import {
     error as wsError,
     incoming,
     outgoing,
-} from "@/features/chat/model/slices/websocketSlice.ts";
+} from "@/infrastructure/slices/websocketSlice.ts";
 
-import { DELAY_STEP_MS, MAX_RECONNECT_DELAY } from "@/shared/config/ws.ts";
-import type {IncomingWSMessage, OutgoingWSMessage} from "@/features/chat/model/types.ts";
-import {isNotLogged} from "@/shared/utils/checks.ts";
-import type {User} from "@/features/auth/types.ts";
+import { DELAY_STEP_MS, MAX_RECONNECT_DELAY } from "@/shared/config/ws";
+import type {IncomingWSMessage, OutgoingWSMessage } from "../types.ts";
+import {isNotLogged} from "@/shared/utils/checks";
+import type {User} from "@/features/auth/types";
+import {logger} from "@/shared/logger/logger.ts";
 
 
 type WSConnectAction = PayloadAction<{ url: string }, string, { shouldReconnect: boolean; }>
@@ -44,7 +44,7 @@ export const websocketMiddleware: Middleware =
                 MAX_RECONNECT_DELAY
             );
 
-            console.debug(`🔁 WS reconnect #${reconnectAttempts} in ${delay}ms`);
+            logger.debug(`🔁 WS reconnect #${reconnectAttempts} in ${delay}ms`);
             reconnectTimeout = setTimeout(() => connect(url, true), delay);
         };
 
@@ -53,7 +53,7 @@ export const websocketMiddleware: Middleware =
             const user : User = state.user;
 
             if (isNotLogged(user.id)) {
-                console.debug("WS connect skipped: user not logged in");
+                logger.debug("WS connect skipped: user not logged in");
                 return;
             }
 
@@ -71,7 +71,7 @@ export const websocketMiddleware: Middleware =
             socket.onopen = () => {
                 reconnectAttempts = 0;
                 dispatch(connected());
-                console.debug(`🔗 WS connected #${reconnectAttempts} to ${url}`);
+                logger.debug(`🔗 WS connected #${reconnectAttempts} to ${url}`);
             };
 
             socket.onmessage = (event: MessageEvent<string>) => {
@@ -105,10 +105,12 @@ export const websocketMiddleware: Middleware =
 
         switch (wsAction.type) {
             case "ws/connect": {
+                logger.debug("connecting by action ", wsAction.type);
+
                 const { url } = (action as WSConnectAction).payload;
                 const shouldReconnect = Boolean(
                     (action as WSConnectAction).meta?.shouldReconnect
-            );
+                );
 
                 if (reconnectTimeout) {
                     clearTimeout(reconnectTimeout);
@@ -121,7 +123,7 @@ export const websocketMiddleware: Middleware =
             }
 
             case "ws/disconnect": {
-                console.debug("disconnected ws by forth");
+                logger.debug("disconnected ws by action");
                 if (reconnectTimeout) {
                     clearTimeout(reconnectTimeout);
                     reconnectTimeout = null;
@@ -139,6 +141,8 @@ export const websocketMiddleware: Middleware =
             }
 
             case "ws/send": {
+                logger.debug("sending ws by action");
+
                 if (socket?.readyState === WebSocket.OPEN) {
                     socket.send(JSON.stringify((action as WSSendAction).payload));
                     dispatch(outgoing((action as WSSendAction).payload));

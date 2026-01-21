@@ -1,44 +1,82 @@
-import contacts from "@/features/chat/rest/contacts.json";
-import type { Contact, DomainChatMessage } from "@/features/chat/model/types.ts";
+import {createApi, fetchBaseQuery} from "@reduxjs/toolkit/query/react";
+import type {Contact} from "@/features/chat/model/types";
+import contacts from "./contacts.json";
+import {type ChatMessage} from "@/features/chat/model/schema/domainChatMessage.schema.ts";
+import {parseChatMessage} from "@/features/chat/model/schema/parser.ts";
 
-/* ======================
-   Fetch contacts excluding self
-====================== */
-export async function fetchChatContacts(): Promise<Contact[]> {
-    return contacts;
-}
 
-/* ======================
-   Check if myId exists in contacts
-====================== */
-export async function checkLogin(myName: string): Promise<Contact | null> {
-    return contacts.find((contact: Contact) => contact.name === myName) as Contact;
-}
+export const chatApi = createApi({
+    reducerPath: "chatApi",
+    baseQuery: fetchBaseQuery({
+        baseUrl: "/api",
+    }),
+    tagTypes: ["Chats", "Chat"],
+    endpoints: (builder) => ({
 
-/* ======================
-   Fetch chat history with a contact
-====================== */
-export async function fetchChatHistory(
-    myId: string,
-    chatName: string
-): Promise<DomainChatMessage[]> {
-    const res = await fetch(`/api/chat/${myId}/${chatName}`);
-    if (!res.ok) throw new Error("Failed to load chat");
-    return res.json();
-}
+        // --------------------
+        // Get list of active chats for client A
+        // --------------------
+        getChats: builder.query<string[], { myId: string }>({
+            query: ({ myId }) => `/chats/${myId}`,
+            transformResponse: (response: unknown) => {
+                if (!Array.isArray(response)) return [];
+                return response as string[];
+            },
+            providesTags: ["Chats"],
+        }),
 
-/* ======================
-   Delete chat history with a contact
-====================== */
-export async function deleteChatHistory(
-    myId: string,
-    chatName: string
-): Promise<void> {
-    const res = await fetch(`/api/chat/${myId}/${chatName}`, {
-        method: "DELETE",
-    });
+        // --------------------
+        // Login check
+        // --------------------
+        checkLogin: builder.query<Contact | null, string>({
+            queryFn: (name: string) => {
+                const found = contacts.find((c) => c.name === name) ?? null;
+                return {data: found};
+            },
+        }),
 
-    if (!res.ok && res.status !== 204) {
-        throw new Error("Failed to delete chat");
-    }
-}
+        // --------------------
+        // Get chat between a client A and B
+        // --------------------
+        getChatHistory: builder.query<
+            ChatMessage[],
+            { myId: string; chatId: string }
+        >({
+            query: ({myId, chatId}) => `/chat/${myId}/${chatId}`,
+            providesTags: (_r, _e, arg) => [
+                {type: "Chat", id: arg.chatId},
+            ],
+            transformResponse: (raw: unknown) => {
+                if (!Array.isArray(raw)) return [];
+                return raw.map(parseChatMessage).filter(Boolean) as ChatMessage[];
+            },
+        }),
+
+        // --------------------
+        // Delete chat between a client A and B
+        // --------------------
+        deleteChatHistory: builder.mutation<
+            void,
+            { myId: string; chatId: string }
+        >({
+            query: ({myId, chatId}) => ({
+                url: `/chat/${myId}/${chatId}`,
+                method: "DELETE",
+            }),
+            invalidatesTags: (_r, _e, arg) => [
+                {type: "Chat", id: arg.chatId},
+            ],
+        }),
+    }),
+});
+
+// --------------------
+// Auto-generated hooks
+// --------------------
+export const {
+    useGetChatsQuery,
+    useLazyCheckLoginQuery,
+    useLazyGetChatHistoryQuery,
+    useGetChatHistoryQuery,
+    useDeleteChatHistoryMutation,
+} = chatApi;

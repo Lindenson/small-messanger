@@ -1,0 +1,16 @@
+{
+  "common": {
+    "search": "Buscar",
+    "cancel": "Cancelar",
+    "loading": "Cargando..."
+  },
+
+  "addUser": {
+    "title": "Añadir usuario",
+    "placeholder": "Email o ID",
+    "confirm": "Añadir",
+    "notFound": "Usuario no encontrado",
+    "error": "Error al buscar usuario",
+    "added": "Usuario añadido"
+  }
+}
