@@ -6,10 +6,10 @@ import type {AppDispatch, RootState} from "@/store/store";
 
 import {useChatMessages} from "./useChatMessages";
 import {useUnreadChats} from "./useUnreadChats";
-import {useContacts} from "./useContacts";
+import {useContacts} from "../../contacts/hooks/useContacts.ts";
 
 import {logger} from "@/shared/logger/logger.ts";
-import type {Contact} from "@/features/chat/model/types.ts";
+import type {Contact} from "@/features/contacts/model/schema/domainContract.schema.ts";
 import type {WSDispatcher} from "@/infrastructure/types.ts";
 import {chatMessagesService} from "@/features/chat/model/services/chatMessages.service.ts";
 

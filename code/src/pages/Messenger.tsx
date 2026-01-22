@@ -19,12 +19,12 @@ export default function Messenger() {
 
 
     /* ======================
-       WebRTC hook
+       WebRTC hooks
     ====================== */
     const webRTC = useWebRTC();
 
     /* ======================
-       Chat hook
+       Chat hooks
     ====================== */
     const chat = useChat(
         { router: webRTC.dispatchMessages }

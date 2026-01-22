@@ -46,11 +46,3 @@ export type ChatMessageView = {
     status: ChatMessageStatus;
 };
 
-export type Contact = {
-    id: string;
-    name: string;
-    last: string;
-    email: string;
-    online: boolean;
-};
-

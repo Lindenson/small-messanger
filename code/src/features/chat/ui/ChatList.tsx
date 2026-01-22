@@ -3,7 +3,7 @@ import {useSelector} from "react-redux";
 import {useNavigate} from "react-router-dom";
 
 import type {RootState} from "@/store/store";
-import type {Contact} from "@/features/chat/model/types";
+import type {Contact} from "@/features/contacts/model/schema/domainContract.schema.ts";
 
 interface ChatListProps {
     chats: Contact[];
@@ -115,11 +115,11 @@ export default function ChatList({
 
                                 {/* Last message */}
                                 <div
-                                    className={`text-sm truncate pl-4 ${
+                                    className={`text-sm truncate pl-2 ${
                                         isUnread ? "text-gray-900" : "text-gray-500"
                                     }`}
                                 >
-                                    {chat.last}
+                                    {chat.email}
                                 </div>
                             </div>
                         );

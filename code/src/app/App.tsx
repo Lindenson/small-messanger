@@ -1,70 +1,49 @@
 import "./App.css";
-import {useEffect} from "react";
 import {BrowserRouter, Route, Routes} from "react-router-dom";
-import {initNotificationSound} from "@/shared/sound/sound.js";
-import type {AppDispatch} from "@/store/store";
-import {useDispatch} from "react-redux";
-
-import {LS_ID, LS_NAME} from "@/shared/config/ls.ts";
-import {clearUser, markInitialized, setUser} from "@/features/auth/slices/userSlice";
 import Messenger from "@/pages/Messenger";
-import LoginPage from "@/pages/LoginPage";
-import LogoutPage from "@/pages/LogoutPage";
+import LoginPage from "@/features/auth/ui/LoginPage.tsx";
+import LogoutPage from "@/features/auth/ui/LogoutPage.tsx";
 import {RequireAuth} from "@/features/auth/ui/RequireAuth";
-import AddUser from "@/pages/AddUser.tsx";
+import AddUser from "@/features/contacts/ui/AddUser.tsx";
 import {useWebSocketConnection} from "@/infrastructure/hooks/useWebSocketConnection.ts";
 import {Toaster} from "react-hot-toast";
+import RegistrationPage from "@/features/auth/ui/RegistrationPage.tsx";
+import {useEffect} from "react";
+import {markInitialized} from "@/features/auth/slices/userSlice.ts";
+import {useDispatch} from "react-redux";
 
 function App() {
 
-    const dispatch = useDispatch<AppDispatch>();
 
     /* ======================
     WebSocket connection
     ====================== */
     useWebSocketConnection();
 
+    const dispatch = useDispatch();
     useEffect(() => {
-        const id = localStorage.getItem(LS_ID);
-        const name = localStorage.getItem(LS_NAME);
-
-        if (id?.trim() && name?.trim()) {
-            initNotificationSound();
-            dispatch(setUser({ id, name }));
-        } else {
-            dispatch(markInitialized());
-        }
+        dispatch(markInitialized());
     }, [dispatch]);
-
-    function handleLogin(name: string, id: string) {
-        localStorage.setItem(LS_NAME, name);
-        localStorage.setItem(LS_ID, id);
-        dispatch(setUser({name, id}));
-    }
-
-    function handleLogout() {
-        localStorage.removeItem(LS_NAME);
-        localStorage.removeItem(LS_ID);
-        dispatch(clearUser());
-    }
 
     return (
         <BrowserRouter>
             <Routes>
                 <Route path="/" element={
-                        <RequireAuth>
-                            <Messenger/>
-                        </RequireAuth>
-                    }
+                    <RequireAuth>
+                        <Messenger/>
+                    </RequireAuth>
+                }
                 />
                 <Route path="/add" element={
-                        <RequireAuth>
-                            <AddUser/>
-                        </RequireAuth>
-                    }
+                    <RequireAuth>
+                        <AddUser/>
+                    </RequireAuth>
+                }
                 />
-                <Route path="/login" element={<LoginPage onLogin={handleLogin}/>}/>
-                <Route path="/logout" element={<LogoutPage onLogout={handleLogout}/>}/>
+                <Route path="/login" element={<LoginPage/>}/>
+                <Route path="/logout" element={<LogoutPage/>}/>
+                <Route path="/register" element={<RegistrationPage/>}/>
+
             </Routes>
             <Toaster/>
         </BrowserRouter>

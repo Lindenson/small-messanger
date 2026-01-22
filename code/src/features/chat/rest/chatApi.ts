@@ -1,6 +1,4 @@
 import {createApi, fetchBaseQuery} from "@reduxjs/toolkit/query/react";
-import type {Contact} from "@/features/chat/model/types";
-import contacts from "./contacts.json";
 import {type ChatMessage} from "@/features/chat/model/schema/domainChatMessage.schema.ts";
 import {parseChatMessage} from "@/features/chat/model/schema/parser.ts";
 
@@ -23,16 +21,6 @@ export const chatApi = createApi({
                 return response as string[];
             },
             providesTags: ["Chats"],
-        }),
-
-        // --------------------
-        // Login check
-        // --------------------
-        checkLogin: builder.query<Contact | null, string>({
-            queryFn: (name: string) => {
-                const found = contacts.find((c) => c.name === name) ?? null;
-                return {data: found};
-            },
         }),
 
         // --------------------
@@ -75,7 +63,6 @@ export const chatApi = createApi({
 // --------------------
 export const {
     useGetChatsQuery,
-    useLazyCheckLoginQuery,
     useLazyGetChatHistoryQuery,
     useGetChatHistoryQuery,
     useDeleteChatHistoryMutation,

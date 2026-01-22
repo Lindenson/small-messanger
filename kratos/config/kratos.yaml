@@ -1,0 +1,18 @@
+identity:
+  schemas:
+    - id: default
+      url: file:///etc/kratos/identity.schema.json
+
+selfservice:
+  methods:
+    password:
+      enabled: true
+
+cookies:
+  path: /
+  same_site: Lax
+
+session:
+  cookie:
+    same_site: Lax
+    path: /

@@ -1,0 +1,1 @@
+export const kratosUrl = "https://localhost/kratos";

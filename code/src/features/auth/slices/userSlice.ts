@@ -1,6 +1,6 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import {anonimo} from "@/shared/utils/checks.ts";
-import type {User} from "@/features/auth/types.ts";
+import type {User} from "@/features/auth/model/types.ts";
 
 const initialState: User = {name: anonimo, id: anonimo, initialized: false};
 

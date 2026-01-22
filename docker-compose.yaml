@@ -35,3 +35,41 @@ services:
       - ./public:/usr/share/nginx/html
     depends_on:
       - node
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ./data:/var/lib/postgresql/data
+    networks:
+      - default
+
+  kratos:
+    image: oryd/kratos:v25.4.0
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+    environment:
+      DSN: ${KRATOS_DSN}
+    command: serve -c /etc/kratos/kratos.yaml
+    volumes:
+      - ./kratos/config:/etc/kratos
+    networks:
+      - default
+
+  kratos-migrate:
+    image: oryd/kratos:v25.4.0
+    env_file:
+      - .env
+    command: migrate sql -e --yes
+    environment:
+      DSN: ${KRATOS_DSN}
+    volumes:
+      - ./kratos/config:/etc/kratos
+    depends_on:
+      - postgres
+

@@ -8,10 +8,10 @@ import {
     outgoing,
 } from "@/infrastructure/slices/websocketSlice.ts";
 
-import { DELAY_STEP_MS, MAX_RECONNECT_DELAY } from "@/shared/config/ws";
+import {DELAY_STEP_MS, MAX_RECONNECT_DELAY, PING_MS} from "@/shared/config/ws";
 import type {IncomingWSMessage, OutgoingWSMessage } from "../types.ts";
 import {isNotLogged} from "@/shared/utils/checks";
-import type {User} from "@/features/auth/types";
+import type {User} from "@/features/auth/model/types.ts";
 import {logger} from "@/shared/logger/logger.ts";
 
 
@@ -52,6 +52,7 @@ export const websocketMiddleware: Middleware =
             const state = store.getState();
             const user : User = state.user;
 
+
             if (isNotLogged(user.id)) {
                 logger.debug("WS connect skipped: user not logged in");
                 return;
@@ -74,6 +75,12 @@ export const websocketMiddleware: Middleware =
                 logger.debug(`🔗 WS connected #${reconnectAttempts} to ${url}`);
             };
 
+            const pingInterval = setInterval(() => {
+                if (socket?.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({ type: "ping" }));
+                }
+            }, PING_MS);
+
             socket.onmessage = (event: MessageEvent<string>) => {
                 try {
                     const data : IncomingWSMessage = JSON.parse(event.data);
@@ -89,6 +96,7 @@ export const websocketMiddleware: Middleware =
 
             socket.onclose = () => {
                 socket = null;
+                clearInterval(pingInterval);
                 dispatch(disconnected());
 
                 if (shouldReconnect) {

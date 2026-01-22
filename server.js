@@ -81,6 +81,8 @@ wss.on("connection", (ws, req) => {
       return;
     }
 
+    if (data.type?.startsWith("ping")) return;
+	  
     console.warn("⚠️ Unknown WS message:", data);
   });
 
@@ -205,6 +207,90 @@ app.get("/chats/:clientId", (req, res) => {
   res.json(contacts);
 });
 
+
+const axios = require("axios");
+const KRATOS_URL = "http://kratos:4434/admin"; // Admin API Kratos
+
+/**
+ * POST /contacts
+ * body: { ids: string[] }
+ * Возвращает Contact[]
+ */
+app.post("/contacts", async (req, res) => {
+  const { ids } = req.body;
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: "ids array required" });
+  }
+
+  try {
+    // Лимит параллельных запросов, чтобы Kratos не завалить
+    const concurrencyLimit = 10;
+    const contacts = [];
+
+    for (let i = 0; i < ids.length; i += concurrencyLimit) {
+      const batch = ids.slice(i, i + concurrencyLimit);
+
+      // Параллельно запрашиваем batch
+      const results = await Promise.allSettled(
+        batch.map((id) =>
+          axios.get(`${KRATOS_URL}/identities/${id}`).then((r) => r.data)
+        )
+      );
+
+      results.forEach((r, idx) => {
+        if (r.status === "fulfilled") {
+          const identity = r.value;
+          contacts.push({
+            id: identity.id,
+            name: identity.traits.name || "",
+            last: identity.traits.last || "",
+            email: identity.traits.email || "",
+            online: clients.has(identity.id), // online есть, если WS подключен
+          });
+        } else {
+          console.warn(`❌ Failed to fetch identity ${batch[idx]}:`, r.reason);
+        }
+      });
+    }
+
+    res.json(contacts);
+  } catch (err) {
+    console.error("❌ /contacts error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+
+app.post("/contacts/lookup", async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: "email required" });
+  }
+
+  try {
+    // Получаем всех пользователей из Kratos
+    const { data: identities } = await axios.get(`${KRATOS_URL}/identities`);
+
+    // Ищем пользователя по email (регистронезависимо)
+    const user = identities.find(
+      (i) => i.traits?.email?.toLowerCase() === email.toLowerCase()
+    );
+
+    if (!user) return res.json(null);
+
+    res.json({
+      id: user.id,
+      name: user.traits.name || "",
+      last: user.traits.last || "",
+      email: user.traits.email,
+      online: clients.has(user.id),
+    });
+  } catch (err) {
+    console.error("❌ /contacts/lookup error:", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 
 /* =====================

@@ -1,9 +1,9 @@
 import {beforeEach, describe, expect, it, type Mock, vi} from "vitest";
 import { renderHook } from "@testing-library/react";
-import { useContacts } from "../useContacts";
+import { useContacts } from "../../../contacts/hooks/useContacts.ts";
 import { useSelector } from "react-redux";
 import { useGetChatsQuery } from "@/features/chat/rest/chatApi";
-import { useGetUsersByIdsQuery } from "@/features/chat/rest/contactsApi";
+import { useGetUsersByIdsQuery } from "@/features/contacts/rest/contactsApi.ts";
 import { logger } from "@/shared/logger/logger";
 
 
@@ -11,7 +11,7 @@ vi.mock("react-redux", () => ({ useSelector: vi.fn() }));
 vi.mock("@/features/chat/rest/chatApi", () => ({
     useGetChatsQuery: vi.fn(),
 }));
-vi.mock("@/features/chat/rest/contactsApi", () => ({
+vi.mock("@/features/contacts/rest/contactsApi", () => ({
     useGetUsersByIdsQuery: vi.fn(),
 }));
 

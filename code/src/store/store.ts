@@ -15,7 +15,7 @@ import {websocketMiddleware} from "@/infrastructure/middleware/wsMiddleware.ts";
 // DB functions
 import {loadOutboxFromDB, saveOutboxToDB} from "@/features/chat/db/db";
 import {chatApi} from "@/features/chat/rest/chatApi.ts";
-import {contactsApi} from "@/features/chat/rest/contactsApi.ts";
+import {contactsApi} from "@/features/contacts/rest/contactsApi.ts";
 
 
 export const store = configureStore({

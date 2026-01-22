@@ -1,7 +1,7 @@
 import {useEffect, useRef} from "react";
 import {useDispatch, useSelector} from "react-redux";
 import type {RootState} from "@/store/store";
-import type {Contact} from "@/features/chat/model/types";
+import type {Contact} from "@/features/contacts/model/schema/domainContract.schema.ts";
 import {setSelectedChatId} from "@/features/chat/model/slices/chatUiSlice.ts";
 
 interface ChatMessageView {

@@ -48,7 +48,7 @@ Object.defineProperty(global.navigator, "mediaDevices", {
 // Tests
 // ======================
 
-describe("useWebRTC hook", () => {
+describe("useWebRTC hooks", () => {
     beforeEach(() => {
         dispatchMock.mockClear();
         (toast.error as Mock).mockClear();

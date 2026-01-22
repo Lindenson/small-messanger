@@ -37,3 +37,7 @@ storybook-static/
 
 # Misc
 .vite/
+
+# Postgres 
+data
+data/**
