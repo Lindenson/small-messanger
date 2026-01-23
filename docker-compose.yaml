@@ -18,11 +18,15 @@ services:
       --no-cli
       --log-file=stdout
 
-  node:
-    build: .
-    container_name: chat-node
-    ports:
-      - "3000:3000"
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    environment:
+      - KRATOS_URL=http://kratos:4434
+    depends_on:
+      - kratos
+    restart: unless-stopped
 
   nginx:
     image: nginx:alpine
@@ -34,7 +38,7 @@ services:
       - ./nginx/certs:/etc/nginx/certs
       - ./public:/usr/share/nginx/html
     depends_on:
-      - node
+      - server
 
   postgres:
     image: postgres:17
