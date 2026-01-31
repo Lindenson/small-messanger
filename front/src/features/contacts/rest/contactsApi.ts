@@ -59,6 +59,6 @@ export const contactsApi = createApi({
 });
 
 // --------------------
-// Auto-generated hooks
+// Auto-generated service
 // --------------------
 export const { useLookupUserMutation, useGetUsersByIdsQuery } = contactsApi;

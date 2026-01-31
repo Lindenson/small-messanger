@@ -1,34 +1,30 @@
 import {useState} from "react";
 import {useNavigate} from "react-router-dom";
-import {useSelector} from "react-redux";
+import {useDispatch, useSelector} from "react-redux";
 
 import ChatList from "@/features/chat/ui/ChatList.tsx";
 import ChatWindow from "@/features/chat/ui/ChatWindow.js";
 import ConfirmModal from "@/widgets/modal/ConfirmModal.jsx";
-import VideoCall from "@/features/call/ui/VideoCall";
-
+import VideoCall from "@/features/call/ui/VideoCall.tsx";
 import {useChat} from "@/features/chat/hooks";
-import {useWebRTC} from "@/features/call/hooks";
 
-import type {RootState} from "@/store/store.ts";
-import type {FromOffer} from "@/features/call/model/types";
+import type {RootState, AppDispatch} from "@/store/store.ts";
+import {outgoingCall, acceptCall, localEnd, rejectCall} from "@/features/call/model/slices/callSlice";
+import {useWebRTC} from "@/features/call/hooks/useWebRTC.ts";
 
 
 export default function Messenger() {
     const navigate = useNavigate();
-
-
-    /* ======================
-       WebRTC hooks
-    ====================== */
-    const webRTC = useWebRTC();
+    const dispatch = useDispatch<AppDispatch>();
 
     /* ======================
-       Chat hooks
+       WebRTC service
     ====================== */
-    const chat = useChat(
-        { router: webRTC.dispatchMessages }
-    );
+    const {localStream, remoteStream} = useWebRTC(); // 🔥
+    /* ======================
+       Chat service
+    ====================== */
+    const chat = useChat();
 
     /* ======================
        Delete modal
@@ -36,7 +32,7 @@ export default function Messenger() {
     const [showDeleteModal, setShowDeleteModal] = useState(false);
 
     /* ======================
-    Call status from Redux
+       Call status from Redux
     ====================== */
     const callStatus = useSelector((state: RootState) => state.call.status);
 
@@ -70,19 +66,22 @@ export default function Messenger() {
                 setInputText={chat.setMessageInput}
                 sendMessage={chat.sendMessage}
                 onDeleteChat={() => setShowDeleteModal(true)}
-                onCall={async () => {
-                    if (peerContact) await webRTC.startCall(peerContact.id);
+                onCall={() => {
+                    // 🔥 Dispatch action instead of calling webRTC directly
+                    if (peerContact) {
+                        dispatch(outgoingCall(peerContact.id));
+                    }
                 }}
             />
 
             {/* ===== Video Call ===== */}
             {callStatus !== "idle" && (
                 <VideoCall
-                    localStream={webRTC.localStream}
-                    remoteStream={webRTC.remoteStream}
-                    onHangUp={webRTC.hangUp}
-                    acceptCall={async (call: FromOffer) => await webRTC.handleOffer(call)}
-                    rejectCall={(from: string) => webRTC.rejectCall(from)}
+                    localStream={localStream}
+                    remoteStream={remoteStream}
+                    onHangUp={() => dispatch(localEnd())}
+                    acceptCall={() => dispatch(acceptCall())}
+                    rejectCall={() => dispatch(rejectCall())}
                 />
             )}
 

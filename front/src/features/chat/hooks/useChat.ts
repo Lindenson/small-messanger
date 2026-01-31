@@ -10,14 +10,10 @@ import {useContacts} from "../../contacts/hooks/useContacts.ts";
 
 import {logger} from "@/shared/logger/logger.ts";
 import type {Contact} from "@/features/contacts/model/schema/domainContract.schema.ts";
-import type {WSDispatcher} from "@/infrastructure/types.ts";
 import {chatMessagesService} from "@/features/chat/model/services/chatMessages.service.ts";
 
-type UseChatProps = {
-    router: WSDispatcher
-}
 
-export function useChat(props: UseChatProps) {
+export function useChat() {
     const dispatch = useDispatch<AppDispatch>();
 
     /* ======================
@@ -80,11 +76,9 @@ export function useChat(props: UseChatProps) {
                 markUnread(chatId);
             }
         }
-        /* ===== DISPATCH THE REST AND DISCARD===== */
-        props.router(lastIncoming);
 
         dispatch(clearIncoming());
-    }, [lastIncoming, myId, selectedChatId, handleIncomingMessage, markUnread, dispatch, props]);
+    }, [lastIncoming, myId, selectedChatId, handleIncomingMessage, markUnread, dispatch]);
 
     /* ======================
        Reconnect handling

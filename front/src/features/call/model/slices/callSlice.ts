@@ -1,67 +1,67 @@
 import {createSlice, type PayloadAction} from "@reduxjs/toolkit";
-import type {CallState, FromOffer} from "@/features/call/model/types.ts";
-import {logger} from "@/shared/logger/logger.ts";
-
-const initialState: CallState = {
-  status: "idle",
-  peerId: null,
-  offer: null,
-};
+import type {FromOffer} from "@/features/call/model/types.ts";
 
 const callSlice = createSlice({
   name: "call",
-  initialState,
+  initialState: {
+    status: "idle" as "idle" | "ringing" | "calling" | "connecting" | "in_call",
+    peerId: null as string | null,
+    incomingOfferData: null as FromOffer | null,
+  },
   reducers: {
-    outgoingCall(state, action: PayloadAction<string>) {
-      if (state.status !== "idle") return;
+    outgoingCall: (state, action: PayloadAction<string>) => {
       state.status = "calling";
       state.peerId = action.payload;
-      logger.debug("status calling");
     },
 
-    incomingOffer(state, action: PayloadAction<FromOffer>) {
-      if (state.status !== "idle") return;
+    incomingOffer: (state, action: PayloadAction<FromOffer>) => {
       state.status = "ringing";
       state.peerId = action.payload.from;
-      state.offer = action.payload.offer;
-      logger.debug("status ringing");
+      state.incomingOfferData = action.payload; // 🔥 сохраняем offer
     },
 
-    acceptCall(state) {
-      if (state.status !== "ringing") return;
+    acceptCall: (state) => {
       state.status = "connecting";
-      logger.debug("status connecting");
     },
 
-    incomingAnswer(state) {
-      if (state.status !== "calling") return;
+    incomingAnswer: (state) => {
       state.status = "connecting";
-      logger.debug("status connecting");
     },
 
-    webrtcConnected(state) {
-      if (state.status !== "connecting") return;
+    webrtcConnected: (state) => {
       state.status = "in_call";
-      state.offer = null;
-      logger.debug("status in_cal");
     },
 
-    localEnd() {
-      logger.debug("idle");
-      return initialState;
+    incomingRemoteEnd: (state) => {
+      state.status = "idle";
+      state.peerId = null;
+      state.incomingOfferData = null;
     },
 
-    incomingRemoteEnd() {
-      logger.debug("idle");
-      return initialState;
+    rejectCall: (state) => {
+      state.status = "idle";
+      state.peerId = null;
+      state.incomingOfferData = null;
+    },
+
+
+    localEnd: (state) => {
+      state.status = "idle";
+      state.peerId = null;
+      state.incomingOfferData = null;
     },
   },
 });
 
 export const {
+  outgoingCall,
   incomingOffer,
+  acceptCall,
   incomingAnswer,
+  webrtcConnected,
   incomingRemoteEnd,
+  localEnd,
+  rejectCall
 } = callSlice.actions;
 
 export default callSlice.reducer;

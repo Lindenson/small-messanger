@@ -1,0 +1,263 @@
+import {ICE_SERVERS} from "@/shared/config/webrtc";
+import type {
+    FromAnswer,
+    FromCandidate,
+    FromOffer,
+    OutgoingWebRTCMessage
+} from "@/features/call/model/types.ts";
+import {logger} from "@/shared/logger/logger.ts";
+import toast from "react-hot-toast";
+
+export class WebRTCService {
+    /* ======================
+       Private properties
+    ====================== */
+    private pc: RTCPeerConnection | null = null;
+    private localStream: MediaStream | null = null;
+    private remotePeerId: string | null = null;
+    private pendingIce: RTCIceCandidateInit[] = [];
+    private remoteReady: boolean = false;
+
+    /* ======================
+       Callbacks for React state updates
+    ====================== */
+    private onLocalStreamChange?: (stream: MediaStream | null) => void;
+    private onRemoteStreamChange?: (stream: MediaStream | null) => void;
+
+    /* ======================
+       Callback for sending WS messages
+    ====================== */
+    private sendWS?: (data: OutgoingWebRTCMessage) => void;
+
+    /* ======================
+       Initialization
+    ====================== */
+    public setStreamCallbacks(
+        onLocalStream: (stream: MediaStream | null) => void,
+        onRemoteStream: (stream: MediaStream | null) => void
+    ) {
+        this.onLocalStreamChange = onLocalStream;
+        this.onRemoteStreamChange = onRemoteStream;
+    }
+
+    public setSendCallback(send: (data: OutgoingWebRTCMessage) => void) {
+        this.sendWS = send;
+    }
+
+    /* ======================
+       WS send
+    ====================== */
+    private send(data: OutgoingWebRTCMessage) {
+        this.sendWS?.(data);
+    }
+
+    /* ======================
+       Error handler
+    ====================== */
+    private handleInitError(err: unknown) {
+        logger.error("WebRTC init failed", err);
+
+        toast.error(
+            err instanceof DOMException
+                ? err.message
+                : "Cannot start video call"
+        );
+
+        this.cleanup();
+    }
+
+    /* ======================
+       Cleanup
+    ====================== */
+    private cleanup() {
+        this.remotePeerId = null;
+        this.remoteReady = false;
+        this.pendingIce = [];
+
+        this.pc?.close();
+        this.pc = null;
+
+        this.localStream?.getTracks().forEach(t => t.stop());
+        this.localStream = null;
+
+        this.onLocalStreamChange?.(null);
+        this.onRemoteStreamChange?.(null);
+    }
+
+    /* ======================
+       Init peer connection
+    ====================== */
+    private async init() {
+        if (this.pc) return;
+
+        const pc = new RTCPeerConnection(ICE_SERVERS);
+        this.pc = pc;
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true,
+        });
+
+        this.localStream = stream;
+        this.onLocalStreamChange?.(stream);
+
+        stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+
+        pc.ontrack = (e) => {
+            this.onRemoteStreamChange?.(e.streams[0]);
+        };
+
+        pc.onicecandidate = (e) => {
+            if (!e.candidate || !this.remotePeerId) return;
+
+            this.send({
+                type: "call:ice",
+                to: this.remotePeerId,
+                candidate: e.candidate,
+            });
+        };
+
+        // 🔥 Events возвращаются через колбеки, а не dispatch
+        pc.onconnectionstatechange = () => {
+            if (pc.connectionState === "connected") {
+                // Middleware подпишется на это
+            }
+
+            if (
+                pc.connectionState === "failed" ||
+                pc.connectionState === "disconnected"
+            ) {
+                this.cleanup();
+            }
+        };
+    }
+
+    /* ======================
+       Start call (caller)
+    ====================== */
+    public async startCall(peerId: string) {
+        if (this.pc) return;
+
+        logger.debug("video call starting with", peerId);
+
+        this.remotePeerId = peerId;
+
+        try {
+            await this.init();
+        } catch (err) {
+            this.handleInitError(err);
+            throw err; // 🔥 Пробрасываем ошибку в middleware
+        }
+
+        if (!this.pc) return;
+
+        const offer = await (this.pc as RTCPeerConnection).createOffer();
+        await (this.pc as RTCPeerConnection).setLocalDescription(offer);
+
+        this.send({
+            type: "call:offer",
+            to: peerId,
+            offer,
+        });
+    }
+
+    /* ======================
+       Handle offer (callee)
+    ====================== */
+    public async handleOffer({from, offer}: FromOffer) {
+        if (this.pc) {
+            this.send({type: "call:end", to: from});
+            throw new Error("Already in call");
+        }
+
+        logger.debug("video call accepting offer");
+
+        this.remotePeerId = from;
+        await this.init();
+
+        if (!this.pc) return;
+
+        await (this.pc as RTCPeerConnection).setRemoteDescription(offer);
+        this.remoteReady = true;
+
+        for (const c of this.pendingIce) {
+            await (this.pc as RTCPeerConnection).addIceCandidate(c);
+        }
+        this.pendingIce = [];
+
+        const answer = await (this.pc as RTCPeerConnection).createAnswer();
+        await (this.pc as RTCPeerConnection).setLocalDescription(answer);
+
+        this.send({
+            type: "call:answer",
+            to: from,
+            answer,
+        });
+    }
+
+    /* ======================
+       Handle answer
+    ====================== */
+    public async handleAnswer({from, answer}: FromAnswer) {
+        if (!this.pc) return;
+        if (this.pc.signalingState !== "have-local-offer") return;
+
+        logger.debug("video call handling answer");
+
+        this.remotePeerId = from;
+        await this.pc.setRemoteDescription(answer);
+        this.remoteReady = true;
+
+        for (const c of this.pendingIce) {
+            await this.pc.addIceCandidate(c);
+        }
+        this.pendingIce = [];
+    }
+
+    /* ======================
+       Add ICE candidate
+    ====================== */
+    public async addIce({from, candidate}: FromCandidate) {
+        if (!candidate) return;
+
+        this.remotePeerId ??= from;
+
+        if (!this.pc || !this.remoteReady) {
+            this.pendingIce.push(candidate);
+            return;
+        }
+
+        await this.pc.addIceCandidate(candidate);
+    }
+
+    /* ======================
+       Hang up
+    ====================== */
+    public hangUp() {
+        if (this.remotePeerId) {
+            this.send({
+                type: "call:end",
+                to: this.remotePeerId,
+            });
+        }
+        this.cleanup();
+    }
+
+    /* ======================
+       Reject call
+    ====================== */
+    public rejectCall(from: string) {
+        this.send({type: "call:end", to: from});
+        this.cleanup();
+    }
+
+    /* ======================
+       Get connection state (for middleware)
+    ====================== */
+    public getConnectionState(): RTCPeerConnectionState | null {
+        return this.pc?.connectionState ?? null;
+    }
+}
+
+// 🔥 Singleton instance
+export const webRTCService = new WebRTCService();

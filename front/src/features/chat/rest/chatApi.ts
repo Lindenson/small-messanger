@@ -59,7 +59,7 @@ export const chatApi = createApi({
 });
 
 // --------------------
-// Auto-generated hooks
+// Auto-generated service
 // --------------------
 export const {
     useGetChatsQuery,
