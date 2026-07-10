@@ -2,7 +2,7 @@ let audio = null;
 
 export function initNotificationSound() {
   if (!audio) {
-    audio = new Audio("/sounds/notification.mp3");
+    audio = new Audio(import.meta.env.BASE_URL + "sounds/notification.mp3");
     audio.volume = 0.6;
   }
 }

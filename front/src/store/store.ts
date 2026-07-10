@@ -6,15 +6,18 @@ import callReducer from "@/features/call/model/slices/callSlice";
 import wsReducer from "@/infrastructure/slices/websocketSlice.ts";
 import chatUiReducer from "@/features/chat/model/slices/chatUiSlice";
 import outboxReducer, { hydrateOutbox, markPersisted } from "@/features/chat/model/slices/outboxSlice";
+import presenceReducer from "@/features/presence/model/presenceSlice";
 
 // Middleware
 import { createCallMiddleware } from "@/features/call/middleware/callMiddleware";
 import { websocketMiddleware } from "@/infrastructure/middleware/wsMiddleware.ts";
+import { presenceMiddleware } from "@/features/presence/middleware/presenceMiddleware.ts";
 
 // DB functions
 import { loadOutboxFromDB, saveOutboxToDB } from "@/features/chat/db/db";
 import { chatApi } from "@/features/chat/rest/chatApi.ts";
 import { contactsApi } from "@/features/contacts/rest/contactsApi.ts";
+import { idsApi } from "@/features/directory/idsApi.ts";
 import type {WebRTCService} from "@/features/call/service/webRTCService.ts";
 
 export function configureAppStore(webRTCService: WebRTCService) {
@@ -25,14 +28,18 @@ export function configureAppStore(webRTCService: WebRTCService) {
             outbox: outboxReducer,
             user: userReducer,
             chatUi: chatUiReducer,
+            presence: presenceReducer,
             [chatApi.reducerPath]: chatApi.reducer,
             [contactsApi.reducerPath]: contactsApi.reducer,
+            [idsApi.reducerPath]: idsApi.reducer,
         },
         middleware: (getDefaultMiddleware) =>
             getDefaultMiddleware().concat(
                 chatApi.middleware,
                 contactsApi.middleware,
+                idsApi.middleware,
                 websocketMiddleware,
+                presenceMiddleware,
                 createCallMiddleware(webRTCService)
             ),
     });

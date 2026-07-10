@@ -1,2 +1,16 @@
 @import "tailwindcss";
 
+/* Full-height app that doesn't rubber-band or leak the body background on iOS/iPad.
+   The app roots use dvh (dynamic viewport); pin the document and kill page scroll so
+   the top isn't clipped and there's no stray gray strip below the input. */
+html, body, #root {
+    height: 100%;
+}
+body {
+    margin: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    background: #d1d5db; /* gray-300 — matches the app so any hairline gap isn't visible */
+}
+
+

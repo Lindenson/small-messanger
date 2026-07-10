@@ -16,6 +16,9 @@ const exceptionHandler = (ex: Error) => logger.error(ex.message, ex);
 export const createCallMiddleware = (webRTCService: WebRTCService): Middleware => {
     return (store) => (next) => (action) => {
         const {dispatch, getState} = store;
+        // Capture the peer BEFORE reducers run — call/rejectCall nulls peerId, but we still need
+        // it to send call:end to the caller (otherwise the caller never learns the call was declined).
+        const peerIdBefore = (getState() as RootState).call.peerId;
         const result = next(action);
         const callAction = action as PayloadAction<unknown>;
 
@@ -90,11 +93,8 @@ export const createCallMiddleware = (webRTCService: WebRTCService): Middleware =
            Reject incoming call
         ====================== */
         if (callAction.type === "call/rejectCall") {
-            const state = getState() as RootState;
-            const from = state.call.peerId;
-
-            if (from) {
-                webRTCService.rejectCall(from);
+            if (peerIdBefore) {
+                webRTCService.rejectCall(peerIdBefore);
             }
         }
 

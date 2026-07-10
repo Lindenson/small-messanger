@@ -20,13 +20,22 @@ export default function LogoutPage() {
         setLoading(true);
 
         try {
+            // Kratos returns the full public logout URL (…/.ory/kratos/public/self-service/logout?token=…).
+            // Keep its path/query, just pin to the current origin (handles an internal kratos host).
             const logoutUrl = new URL(await logout());
-            const proxiedUrl = `${window.location.origin}/kratos${logoutUrl.pathname}${logoutUrl.search}`;
+            const target = `${window.location.origin}${logoutUrl.pathname}${logoutUrl.search}`;
             onLogoutEvents();
-            window.location.href = proxiedUrl;
+            // Invalidate the Kratos session in the background instead of navigating the browser
+            // to Kratos (which would bounce to Kratos' default post-logout page). redirect:"manual"
+            // means we don't follow Kratos' redirect; the Set-Cookie that clears the session still
+            // applies (same-origin), so the session is dead and we control the destination.
+            await fetch(target, {credentials: "include", redirect: "manual"}).catch(() => {});
+            navigate("/login", {replace: true});
 
         } catch (err) {
             console.error("Logout error:", err);
+            // Even if the flow call failed, send the user to login rather than leaving them stuck.
+            navigate("/login", {replace: true});
         } finally {
             setLoading(false);
         }

@@ -1,5 +1,4 @@
 import type {IncomingWebRTCMessage} from "@/features/call/model/types.ts";
-import type {ChatMessage} from "@/features/chat/model/schema/domainChatMessage.schema.ts";
 
 type WSStatus = "disconnected" | "connecting" | "connected"
 
@@ -16,12 +15,11 @@ export type WebSocketState = {
     error: string | null;
 };
 
-export type IncomingWSMessage =
-    | WSMessage & { type: "message"; payload: ChatMessage }
-    | IncomingWebRTCMessage;
-
+// After the frameBridge, WebRTC signaling arrives as a `call:*` frame; everything else
+// is a raw backend frame (CHAT_OUT, CHAT_ACK, READ_OUT, PRESENT_*, SYSTEM_OUT, ...).
+export type IncomingWSMessage = IncomingWebRTCMessage | WSMessage;
 
 export type OutgoingWSMessage = {
     type: string;
-    payload?: unknown;
+    [key: string]: unknown;
 };

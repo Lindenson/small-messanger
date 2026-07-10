@@ -15,14 +15,12 @@ export type ChatMessageStatus =
 // Outbox bd layer
 // ===========================
 
-export type OutboxMessagePayload = {
-    from: string;
-    to: string;
-    text: string;
-}
+// The queued outgoing message is the ready-to-send backend CHAT_IN frame.
+import type {WireMessage} from "@/features/chat/model/schema/wireMessage.schema.ts";
+export type OutboxMessagePayload = WireMessage;
 
 export type OutboxMessage = {
-    id: string;
+    id: string;              // client messageId — echoed back as CHAT_ACK.correlationId
     idempotencyKey: string;
     payload: OutboxMessagePayload;
     status: ChatMessageStatus;
@@ -44,5 +42,7 @@ export type ChatMessageView = {
     fromMe: boolean;
     text: string;
     status: ChatMessageStatus;
+    kind?: string;
+    meta?: Record<string, string>;
 };
 

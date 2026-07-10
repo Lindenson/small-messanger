@@ -1,10 +1,13 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import { z } from "zod";
 import { ContactSchema } from "@/features/contacts/model/schema/domainContract.schema.ts";
+import { MESSENGER_API } from "@/shared/config/api.ts";
 
+// NOTE: the Hormigas Messenger does not expose /contacts endpoints (client directory is a
+// separate service). These calls will 404 against it; the chat list is driven by GET /api/chats.
 export const contactsApi = createApi({
     reducerPath: "contactsApi",
-    baseQuery: fetchBaseQuery({ baseUrl: "/api" }), // твой бэкенд
+    baseQuery: fetchBaseQuery({ baseUrl: MESSENGER_API, credentials: "include" }),
     tagTypes: ["Contact"],
     endpoints: (builder) => ({
         // ----------------

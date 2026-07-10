@@ -44,7 +44,7 @@ export default function ChatList({
 
     return (
         <>
-            <aside className={`bg-gray-200 border-r w-full sm:w-1/3 max-w-sm h-screen
+            <aside className={`bg-gray-200 border-r w-full sm:w-1/3 max-w-sm h-full min-h-0
             ${isChatOpen ? "hidden sm:flex" : "flex flex-col"} flex-col`}
             >
                 {/* Header */}
@@ -99,8 +99,12 @@ export default function ChatList({
                                 className={`p-4 cursor-pointer hover:bg-gray-100
                                 ${selectedChatId === chat.id ? "bg-gray-100" : ""}`}
                             >
-                                {/* Name + unread dot */}
+                                {/* Name + presence/unread dot */}
                                 <div className="flex items-center gap-2">
+                                    <span
+                                        className={`w-2 h-2 rounded-full shrink-0 ${chat.online ? "bg-green-500" : "bg-gray-300"}`}
+                                        title={chat.online ? "en línea" : "desconectado"}
+                                    />
                                     {isUnread && (
                                         <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0"/>
                                     )}

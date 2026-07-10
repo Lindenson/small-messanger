@@ -1,11 +1,13 @@
 import {nanoid} from "@reduxjs/toolkit";
 import type {ChatMessageView, OutboxMessage} from "@/features/chat/model/types.ts";
 import type {ChatMessage} from "@/features/chat/model/schema/domainChatMessage.schema.ts";
+import {buildChatIn, type WireMessage} from "@/features/chat/model/schema/wireMessage.schema.ts";
 
 type SendChatMessageCommand = {
-    from: string;
-    to: string;
+    conversationId: string;
+    recipientId: string;
     text: string;
+    orderId?: string;
 };
 
 export function toChatMessageView(
@@ -17,21 +19,42 @@ export function toChatMessageView(
         fromMe: msg.from === myId,
         text: msg.text,
         status: msg.status,
+        kind: msg.kind,
+        meta: msg.meta,
     };
 }
 
-export function toOutboxMessage(
-    cmd: SendChatMessageCommand
-): OutboxMessage {
+/** Backend wire frame (CHAT_OUT / history row) → domain ChatMessage keyed by conversationId. */
+export function wireToChatMessage(m: WireMessage): ChatMessage {
+    const ts = m.serverTimestamp ?? m.senderTimestamp ?? Date.now();
     return {
-        id: nanoid(),
-        idempotencyKey: nanoid(),
+        id: m.messageId ?? String(m.id ?? nanoid()),
+        chatId: m.conversationId ?? "",
+        from: m.senderId ?? "",
+        to: m.recipientId ?? "",
+        text: m.payload?.body ?? "",
+        createdAt: new Date(ts),
+        status: "sent",
+        kind: m.payload?.kind,
+        meta: m.meta,
+    };
+}
+
+/** A queued outgoing chat message: the CHAT_IN frame plus its client messageId (= outbox id). */
+export function toOutboxMessage(cmd: SendChatMessageCommand): OutboxMessage {
+    const messageId = nanoid();
+    const meta = cmd.orderId ? { orderId: cmd.orderId } : undefined;
+    return {
+        id: messageId,
+        idempotencyKey: messageId,
         status: "pending",
-        payload: {
-            from: cmd.from,
-            to: cmd.to,
-            text: cmd.text,
-        },
+        payload: buildChatIn({
+            conversationId: cmd.conversationId,
+            recipientId: cmd.recipientId,
+            messageId,
+            body: cmd.text,
+            meta,
+        }),
     };
 }
 
