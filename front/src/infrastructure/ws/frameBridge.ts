@@ -1,0 +1,55 @@
+import type { IncomingWSMessage, OutgoingWSMessage, WSMessage } from "@/infrastructure/types.ts";
+
+/**
+ * WS boundary translator between this frontend's vocabulary and the Hormigas backend
+ * wire protocol. Kept at the socket edge on purpose so that `features/call/*` and the
+ * chat feature stay unaware of the backend frame shapes.
+ *
+ * WebRTC signaling: the frontend speaks `call:offer|answer|ice|end` with `to`/`from`;
+ * the backend carries all of it in a single `SIGNAL_IN`/`SIGNAL_OUT` frame with the
+ * sub-type in `payload.kind` and the WebRTC body JSON-encoded in `payload.body`.
+ */
+
+const CALL_PREFIX = "call:";
+
+function uuid(): string {
+    try { return crypto.randomUUID(); } catch { return "sig-" + Date.now() + "-" + Math.random().toString(36).slice(2); }
+}
+
+/** Outgoing: frontend action payload → backend inbound wire frame. */
+export function toWire(outgoing: OutgoingWSMessage, ctx?: { conversationId?: string }): WSMessage {
+    const frame = outgoing as WSMessage & { to?: string };
+
+    if (typeof frame.type === "string" && frame.type.startsWith(CALL_PREFIX)) {
+        // Backend SIGNAL_IN validation REQUIRES: messageId, recipientId, conversationId,
+        // senderTimestamp, senderTimezone, and payload.kind ∈ {text,attachment,event,custom}.
+        // So the WebRTC sub-type (call:offer/answer/ice/end) + its data go inside payload.body
+        // under kind="event". `to` is the counterpart USER id; conversationId comes from wsMiddleware.
+        const { type, to, ...rest } = frame;
+        return {
+            type: "SIGNAL_IN",
+            messageId: uuid(),
+            recipientId: to,
+            conversationId: ctx?.conversationId,
+            senderTimestamp: Date.now(),
+            senderTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            payload: { kind: "event", body: JSON.stringify({ type, ...rest }) },
+        };
+    }
+
+    // CHAT_IN / CHAT_ACK / READ_IN etc. are already built in backend shape upstream.
+    return frame;
+}
+
+/** Incoming: backend outbound wire frame → frontend-shaped incoming message. */
+export function fromWire(incoming: WSMessage): IncomingWSMessage {
+    if (incoming?.type === "SIGNAL_OUT") {
+        // payload.body carries { type: "call:offer"|..., offer|answer|candidate }
+        const payload = (incoming.payload ?? {}) as { body?: string };
+        const inner = payload.body ? JSON.parse(payload.body) : {};
+        const from = (incoming.senderId as string) ?? (incoming.from as string);
+        return { ...inner, from } as IncomingWSMessage;
+    }
+
+    return incoming as IncomingWSMessage;
+}

@@ -26,7 +26,7 @@ function App() {
     }, [dispatch]);
 
     return (
-        <BrowserRouter>
+        <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, "")}>
             <Routes>
                 <Route path="/" element={
                     <RequireAuth>

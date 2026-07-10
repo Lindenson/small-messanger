@@ -9,7 +9,8 @@ import {flushOutbox} from "@/features/chat/thunk/sendOutboxThunk.ts";
 
 export const chatMessagesService = {
     incomingMessage(dispatch: AppDispatch, myId: string, msg: ChatMessage) {
-        const chatId = msg.from === myId ? msg.to : msg.from;
+        const chatId = msg.chatId;
+        if (!chatId) return;
         logger.debug("updating chat history idempotent, adding message", msg);
 
         dispatch(
@@ -20,18 +21,6 @@ export const chatMessagesService = {
                     if (!draft) return;
                     if (!draft.some((m) => m.id === msg.id)) {
                         draft.push(msg);
-                    }
-                }
-            )
-        );
-        logger.debug("updating chat list if needed", chatId);
-        dispatch(
-            chatApi.util.updateQueryData(
-                "getChats",
-                {myId},
-                (draft = []) => {
-                    if (!draft.includes(chatId!)) {
-                        draft.push(chatId!);
                     }
                 }
             )
@@ -66,18 +55,45 @@ export const chatMessagesService = {
     },
 
 
-    enqueueChatMessage(dispatch: AppDispatch, text : string, myId: string, selectedChatId: string | null) {
-        if (!selectedChatId) return;
+    enqueueChatMessage(
+        dispatch: AppDispatch,
+        text: string,
+        myId: string,
+        conversationId: string | null,
+        recipientId: string | null,
+        orderId?: string
+    ) {
+        if (!conversationId || !recipientId || !text.trim()) return;
         logger.debug("sending chat message via a queue", text);
+
+        const outboxMsg = toOutboxMessage({conversationId, recipientId, text, orderId});
+        dispatch(enqueueMessage(outboxMsg));
+
+        // Optimistic echo: the backend does NOT send CHAT_OUT back to the sender (only a
+        // CHAT_ACK), so show our own message immediately. The client messageId is used as
+        // the id; on the next history read-through RTK Query replaces the list with the
+        // server's authoritative rows, so this transient copy can't duplicate.
         dispatch(
-            enqueueMessage(
-                toOutboxMessage({
-                    from: myId,
-                    to: selectedChatId,
-                    text,
-                })
+            chatApi.util.updateQueryData(
+                "getChatHistory",
+                {myId, chatId: conversationId},
+                (draft) => {
+                    if (!draft) return;
+                    if (!draft.some((m) => m.id === outboxMsg.id)) {
+                        draft.push({
+                            id: outboxMsg.id,
+                            chatId: conversationId,
+                            from: myId,
+                            to: recipientId,
+                            text,
+                            createdAt: new Date(),
+                            status: "sent",
+                        });
+                    }
+                }
             )
         );
+
         dispatch(flushOutbox());
     },
 };

@@ -1,35 +1,20 @@
 import {createAsyncThunk} from "@reduxjs/toolkit";
-import {markFailed, markSending, markSent,} from "../model/slices/outboxSlice.ts";
+import {markSending} from "../model/slices/outboxSlice.ts";
 import type {RootState} from "@/store/store";
-import type {OutboxMessage} from "@/features/chat/model/types.ts";
 
+// Push queued CHAT_IN frames over the WebSocket. Delivery is NOT confirmed here: the server
+// replies with a CHAT_ACK (correlationId === the client messageId) which the chat layer maps
+// to outbox markSent (which removes the row). Sending is idempotent by messageId, so calling
+// this again on reconnect safely re-sends anything still queued.
+export const flushOutbox = createAsyncThunk<void, void, { state: RootState }>(
+    "outbox/flush",
+    async (_, {getState, dispatch}) => {
+        if (getState().ws.status !== "connected") return;
 
-async function sendToServer(msg: OutboxMessage) {
-    await fetch("/api/messages", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "Idempotency-Key": msg.idempotencyKey,
-        },
-        body: JSON.stringify(msg.payload),
-    });
-}
-
-export const flushOutbox = createAsyncThunk<
-    void, void, { state: RootState }>("outbox/flush", async (_, {getState, dispatch}) => {
-    const {messages} = getState().outbox;
-
-    for (const msg of messages) {
-        if (msg.status !== "pending" && msg.status !== "failed") continue;
-
-        dispatch(markSending(msg.id));
-
-        try {
-            await sendToServer(msg);
-            dispatch(markSent(msg.id));
-        } catch {
-            dispatch(markFailed(msg.id));
-            break;
+        for (const msg of getState().outbox.messages) {
+            if (msg.status === "sent") continue;
+            dispatch(markSending(msg.id));
+            dispatch({type: "ws/send", payload: msg.payload});
         }
     }
-});
+);

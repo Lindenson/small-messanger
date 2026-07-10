@@ -1,103 +1,71 @@
 import {useSelector} from "react-redux";
 import type {RootState} from "@/store/store.ts";
-import {useGetChatsQuery} from "@/features/chat/rest/chatApi.ts";
+import {useGetChatsQuery, type ChatSummary} from "@/features/chat/rest/chatApi.ts";
 import type {Contact} from "@/features/contacts/model/schema/domainContract.schema.ts";
 import {isNotLogged} from "@/shared/utils/checks.ts";
-import {logger} from "@/shared/logger/logger.ts";
-import {useGetUsersByIdsQuery} from "@/features/contacts/rest/contactsApi.ts";
-import {useEffect, useMemo, useRef} from "react";
-import {skipToken} from "@reduxjs/toolkit/query/react";
-import toast from "react-hot-toast";
-
+import {idsDisplayName, useGetIdsUsersQuery} from "@/features/directory/idsApi.ts";
+import {useMemo} from "react";
 
 export function useContacts() {
     const myId = useSelector((state: RootState) => state.user.id);
+    const presence = useSelector((state: RootState) => state.presence.byId);
     const skip = isNotLogged(myId);
 
-    const {
-        data: contactIds = [],
-        isLoading: isLoadingIds,
-        isError: isErrorIds,
-    } = useGetChatsQuery({ myId }, { skip });
+    const {data: summaries = [], isLoading, isError} = useGetChatsQuery({myId}, {skip});
+    const {data: idsUsers = []} = useGetIdsUsersQuery(undefined, {skip});
 
-    const usersQueryArg =
-        !skip && contactIds.length > 0
-            ? { ids: contactIds }
-            : skipToken;
+    const idsById = useMemo(
+        () => Object.fromEntries(idsUsers.map((u) => [u.id, u])),
+        [idsUsers]
+    );
 
-    const {
-        data: contactsData = [],
-        isLoading: isLoadingUsers,
-        isError: isErrorUsers,
-    } = useGetUsersByIdsQuery(usersQueryArg);
-
-
-    const contacts = useMemo(() => {
-        if (isErrorIds || isErrorUsers) {
-            logger.error("contacts error", { myId });
-            return [];
-        }
-        if (isLoadingIds || isLoadingUsers) return [];
-        return contactsData?.filter(c => c.id !== myId) ?? [];
-    }, [
-        contactsData,
-        isLoadingIds,
-        isLoadingUsers,
-        isErrorIds,
-        isErrorUsers,
-        myId,
-    ]);
+    // Names resolve from the IDS directory (all users), then presence (online peers), then the
+    // order label / identity id. Online status comes from presence (PRESENT_* frames).
+    const contacts = useMemo<Contact[]>(
+        () => summaries.map((s) => {
+            const ids = idsById[s.counterpartId];
+            const p = presence[s.counterpartId];
+            const name =
+                (ids ? idsDisplayName(ids) : undefined) ||
+                p?.name ||
+                (s.orderId ? `Order ${s.orderId}` : s.counterpartId);
+            return {
+                id: s.conversationId,
+                name,
+                last: "",
+                email: ids?.email || p?.email || s.counterpartId,
+                online: p?.online ?? false,
+            };
+        }),
+        [summaries, presence, idsById]
+    );
 
     const getContactById = useMemo(
-        () => (id: string): Contact | null =>
-            contacts.find(c => c.id === id) ?? null,
+        () => (id: string): Contact | null => contacts.find(c => c.id === id) ?? null,
         [contacts]
     );
 
     const getContactByName = useMemo(
-        () => (name: string): Contact | null =>
-            contacts.find(c => c.name === name) ?? null,
+        () => (name: string): Contact | null => contacts.find(c => c.name === name) ?? null,
         [contacts]
     );
 
-
-    const usersLoadingToastId = useRef<string | null>(null);
-
-    useEffect(() => {
-        // ⏳ loading
-        if ((isLoadingUsers || isLoadingIds) && !usersLoadingToastId.current) {
-            usersLoadingToastId.current = toast.loading("Loading contacts...");
-            return;
-        }
-
-        // ❌ error
-        if ((isErrorUsers || isErrorIds) && usersLoadingToastId.current) {
-            logger.error("getUsersByIds failed", { myId });
-
-            toast.error("Load contacts error", {
-                id: usersLoadingToastId.current,
-            });
-
-            usersLoadingToastId.current = null;
-            return;
-        }
-
-        // ✅ success
-        if (!(isLoadingUsers || isLoadingIds) && usersLoadingToastId.current) {
-            toast.dismiss(usersLoadingToastId.current);
-            usersLoadingToastId.current = null;
-        }
-    }, [isLoadingUsers, isErrorUsers, myId, isLoadingIds, isErrorIds]);
-
-
+    const getSummary = useMemo(
+        () => (conversationId: string): ChatSummary | null =>
+            summaries.find(s => s.conversationId === conversationId) ?? null,
+        [summaries]
+    );
 
     return {
         contacts,
-        isLoadingIds,
-        isLoadingUsers,
-        isErrorIds,
-        isErrorUsers,
+        summaries,
         getContactById,
         getContactByName,
+        getSummary,
+        // back-compat aliases for existing consumers
+        isLoadingIds: isLoading,
+        isLoadingUsers: false,
+        isErrorIds: isError,
+        isErrorUsers: false,
     };
 }

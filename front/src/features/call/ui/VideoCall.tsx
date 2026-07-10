@@ -1,6 +1,7 @@
-import {useEffect, useRef, useState} from "react";
+import {useEffect, useMemo, useRef, useState} from "react";
 import {useSelector} from "react-redux";
 import type {RootState} from "@/store/store.ts";
+import {idsDisplayName, useGetIdsUsersQuery} from "@/features/directory/idsApi.ts";
 import ConfirmModal from "@/widgets/modal/ConfirmModal.jsx";
 
 interface VideoCallProps {
@@ -36,13 +37,20 @@ export default function VideoCall({
     const callFrom = useSelector((state: RootState) => state.call.peerId);
     const callStatus = useSelector((state: RootState) => state.call.status);
 
+    // Resolve the caller's display name from the IDS directory (peerId is a user id).
+    const {data: idsUsers = []} = useGetIdsUsersQuery();
+    const callerName = useMemo(() => {
+        const u = idsUsers.find((x) => x.id === callFrom);
+        return u ? idsDisplayName(u) : (callFrom ?? "");
+    }, [idsUsers, callFrom]);
+
     const [newCall, setNewCall] = useState(true);
 
     if (newCall && callStatus === "ringing") {
         return (
             <ConfirmModal
                 title="Llamada entrante"
-                message={`Te está llamando ${callFrom}`}
+                message={`Te está llamando ${callerName}`}
                 confirmText="Aceptar"
                 cancelText="Rechazar"
                 onConfirm={() => {

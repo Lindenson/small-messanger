@@ -8,10 +8,12 @@ import {
     outgoing,
 } from "@/infrastructure/slices/websocketSlice.ts";
 
-import {DELAY_STEP_MS, MAX_RECONNECT_DELAY, PING_MS} from "@/shared/config/ws";
-import type {IncomingWSMessage, OutgoingWSMessage } from "../types.ts";
+import {DELAY_STEP_MS, MAX_RECONNECT_DELAY} from "@/shared/config/ws";
+import type {OutgoingWSMessage, WSMessage} from "../types.ts";
+import {fromWire, toWire} from "@/infrastructure/ws/frameBridge.ts";
 import {isNotLogged} from "@/shared/utils/checks";
 import type {User} from "@/features/auth/model/types.ts";
+import {chatApi, type ChatSummary} from "@/features/chat/rest/chatApi.ts";
 import {logger} from "@/shared/logger/logger.ts";
 
 
@@ -75,16 +77,10 @@ export const websocketMiddleware: Middleware =
                 logger.debug(`🔗 WS connected #${reconnectAttempts} to ${url}`);
             };
 
-            const pingInterval = setInterval(() => {
-                if (socket?.readyState === WebSocket.OPEN) {
-                    socket.send(JSON.stringify({ type: "ping" }));
-                }
-            }, PING_MS);
-
             socket.onmessage = (event: MessageEvent<string>) => {
                 try {
-                    const data : IncomingWSMessage = JSON.parse(event.data);
-                    dispatch(incoming(data));
+                    const raw = JSON.parse(event.data) as WSMessage;
+                    dispatch(incoming(fromWire(raw)));
                 } catch {
                     dispatch(wsError("WS parse error"));
                 }
@@ -96,7 +92,6 @@ export const websocketMiddleware: Middleware =
 
             socket.onclose = () => {
                 socket = null;
-                clearInterval(pingInterval);
                 dispatch(disconnected());
 
                 if (shouldReconnect) {
@@ -152,8 +147,21 @@ export const websocketMiddleware: Middleware =
                 logger.debug("sending ws by action");
 
                 if (socket?.readyState === WebSocket.OPEN) {
-                    socket.send(JSON.stringify((action as WSSendAction).payload));
-                    dispatch(outgoing((action as WSSendAction).payload));
+                    const payload = (action as WSSendAction).payload;
+                    // For WebRTC call frames, resolve the conversationId from the chat directory
+                    // by the counterpart user id (`to`), so the SIGNAL_IN passes backend validation.
+                    let ctx: { conversationId?: string } | undefined;
+                    const p = payload as { type?: string; to?: string };
+                    if (typeof p.type === "string" && p.type.startsWith("call:") && p.to) {
+                        const st = store.getState();
+                        const myId = (st.user as User)?.id;
+                        const summaries = chatApi.endpoints.getChats.select({myId})(st)?.data as
+                            ChatSummary[] | undefined;
+                        const conv = summaries?.find((s) => s.counterpartId === p.to);
+                        ctx = {conversationId: conv?.conversationId};
+                    }
+                    socket.send(JSON.stringify(toWire(payload, ctx)));
+                    dispatch(outgoing(payload));
                 }
                 break;
             }

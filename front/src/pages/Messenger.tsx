@@ -65,11 +65,18 @@ export default function Messenger() {
                 inputText={chat.messageInput}
                 setInputText={chat.setMessageInput}
                 sendMessage={chat.sendMessage}
+                onTyping={chat.notifyTyping}
+                onToggleBlock={chat.toggleBlock}
+                blocked={chat.selectedBlocked}
+                onDeleteMessage={chat.deleteMessage}
+                onSendAttachment={chat.sendAttachment}
+                onDownloadAttachment={chat.downloadAttachment}
+                onResolveAttachment={chat.getAttachmentUrl}
                 onDeleteChat={() => setShowDeleteModal(true)}
                 onCall={() => {
-                    // 🔥 Dispatch action instead of calling webRTC directly
-                    if (peerContact) {
-                        dispatch(outgoingCall(peerContact.id));
+                    // Call the counterpart's USER id (signaling recipient), not the conversationId.
+                    if (chat.selectedCounterpartId) {
+                        dispatch(outgoingCall(chat.selectedCounterpartId));
                     }
                 }}
             />

@@ -27,14 +27,27 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
             if (session?.identity) {
                 logger.debug("session found");
 
-                const traits = session.identity.traits as {
-                    name?: string;
+                // Kratos `traits.name` may be a string OR an object ({first,last}),
+                // depending on the identity schema. Coerce to a non-empty string so the
+                // downstream `isNotLogged(name)` gate never calls .trim() on a non-string.
+                const traits = (session.identity.traits ?? {}) as {
+                    name?: unknown;
                     email?: string;
                 };
+                const rawName = traits.name;
+                const displayName =
+                    typeof rawName === "string"
+                        ? rawName
+                        : rawName && typeof rawName === "object"
+                            ? [
+                                (rawName as { first?: string }).first,
+                                (rawName as { last?: string }).last,
+                              ].filter(Boolean).join(" ").trim()
+                            : "";
 
                 dispatch(setUser({
                     id: session.identity.id,
-                    name: traits.name ?? "XXX",
+                    name: displayName || traits.email || session.identity.id,
                 }));
             }
             setLoading(false);

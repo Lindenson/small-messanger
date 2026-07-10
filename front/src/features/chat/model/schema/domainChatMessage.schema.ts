@@ -17,7 +17,10 @@ export const ChatMessageSchema = z.object({
         },
         z.date(),
     ),
-    status: z.preprocess(() => "sent", ChatMessageStatusSchema)
+    status: z.preprocess(() => "sent", ChatMessageStatusSchema),
+    // payload.kind (e.g. "attachment") + opaque meta (attachmentId/fileName/contentType/…)
+    kind: z.string().optional(),
+    meta: z.record(z.string(), z.string()).optional(),
 });
 
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;

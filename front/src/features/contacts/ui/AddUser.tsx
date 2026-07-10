@@ -1,118 +1,151 @@
-import {useState} from "react";
+import {useMemo, useState} from "react";
 import {useNavigate} from "react-router-dom";
 import {useDispatch, useSelector} from "react-redux";
 
 import type {AppDispatch, RootState} from "@/store/store.ts";
-import type {Contact} from "@/features/contacts/model/schema/domainContract.schema.ts";
-
-import {useLookupUserMutation} from "@/features/contacts/rest/contactsApi.ts";
-import {chatApi} from "@/features/chat/rest/chatApi.ts";
-import {useTranslation} from "react-i18next";
+import {chatApi, useCreateChatMutation} from "@/features/chat/rest/chatApi.ts";
+import {setSelectedChatId} from "@/features/chat/model/slices/chatUiSlice.ts";
+import {idsDisplayName, useGetIdsUsersQuery, type IdsUser} from "@/features/directory/idsApi.ts";
 import {logger} from "@/shared/logger/logger.ts";
 import toast from "react-hot-toast";
 
+function initials(name: string): string {
+    const p = name.trim().split(/\s+/).filter(Boolean);
+    return ((p[0]?.[0] ?? "") + (p[1]?.[0] ?? "")).toUpperCase() || "?";
+}
+
+const roleColor: Record<string, string> = {
+    master: "bg-indigo-100 text-indigo-700",
+    client: "bg-emerald-100 text-emerald-700",
+    admin: "bg-amber-100 text-amber-700",
+};
+
+// Pick ONE person to chat with. The conversation is created between the current user and the
+// picked one; client/master roles come from the IDS directory. (Chat creation is authorised by
+// X-Admin-Key, sent by the API layer.) You must be logged in as a client/master to be a
+// participant and see the chat — an admin identity is not a participant.
 export default function AddContactPage() {
-
-    const myId = useSelector((state: RootState) => state.user.id);
-
-    const [identifier, setIdentifier] = useState("");
-    const [user, setUser] = useState<Contact | null>(null);
-    const [error, setError] = useState<string | null>(null);
-
+    const myId = useSelector((s: RootState) => s.user.id);
     const dispatch = useDispatch<AppDispatch>();
-    const [lookupUser, {isLoading}] = useLookupUserMutation();
-
+    const {data: users = [], isLoading, isError} = useGetIdsUsersQuery();
+    const [query, setQuery] = useState("");
+    const [createChat, {isLoading: creating}] = useCreateChatMutation();
     const navigate = useNavigate();
 
-    const {t} = useTranslation();
+    const myRole = useMemo(
+        () => (users.find((u) => u.id === myId)?.role ?? "").toLowerCase(),
+        [users, myId]
+    );
 
-    const handleSearch = async () => {
-        if (!identifier.trim()) return;
-        setUser(null);
-        try {
-            const res = await lookupUser(identifier.trim()).unwrap();
+    const results = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        return users
+            .filter((u) => u.id !== myId)
+            .filter(
+                (u) =>
+                    !q ||
+                    idsDisplayName(u).toLowerCase().includes(q) ||
+                    (u.email ?? "").toLowerCase().includes(q) ||
+                    u.id.toLowerCase().includes(q)
+            );
+    }, [users, query, myId]);
 
-            if (res.found && res.user) {
-                setUser(res.user);
-                setError(null);
-            } else {
-                setError(t("addUser.notFound"));
-            }
-        } catch (e) {
-            logger.error("Find user error", e);
-            toast.error(t("addUser.error"));
+    async function startChat(other: IdsUser) {
+        const otherRole = (other.role ?? "").toLowerCase();
+        // Assign clientId/masterId for the (me, other) pair using known roles.
+        let clientId: string, masterId: string;
+        if (myRole === "master" || otherRole === "client") {
+            masterId = myId; clientId = other.id;
+        } else if (myRole === "client" || otherRole === "master") {
+            clientId = myId; masterId = other.id;
+        } else {
+            clientId = myId; masterId = other.id; // fallback (roles unknown)
         }
-    };
-
-    const handleAdd = () => {
-        logger.debug("adding user", user);
-        if (!user) return;
-        dispatch(
-            chatApi.util.updateQueryData(
-                "getChats",
-                {myId},
-                (draft = []) => {
-                    logger.debug("adding user", user);
-                    logger.debug("to list", draft);
-                    if (!draft.includes(user.id)) {
-                        draft.push(user.id);
+        try {
+            const conv = await createChat({clientId, masterId, metadata: {}}).unwrap();
+            // The pair may already exist and be soft-deleted for both sides (getChats hides it
+            // until new activity revives it). Inject it into the list cache and open it directly,
+            // so the user can send the first message — which revives the thread for both.
+            const counterpartId = conv.clientId === myId ? conv.masterId : conv.clientId;
+            dispatch(
+                chatApi.util.updateQueryData("getChats", {myId}, (draft) => {
+                    if (draft && !draft.some((s) => s.conversationId === conv.id)) {
+                        draft.push({
+                            conversationId: conv.id,
+                            counterpartId,
+                            orderId: conv.metadata?.orderId,
+                            blocked: false,
+                        });
                     }
-                }
-            )
-        );
-        navigate("/");
-    };
+                })
+            );
+            dispatch(setSelectedChatId(conv.id));
+            toast.success("Chat abierto");
+            navigate("/");
+        } catch (err) {
+            const status = (err as {status?: number})?.status;
+            logger.error("createChat failed", err as Error);
+            toast.error(
+                status === 403 ? "Se requiere X-Admin-Key válido para crear chats"
+                    : status === 400 ? "Datos inválidos"
+                        : "No se pudo crear el chat"
+            );
+        }
+    }
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center
-        justify-center bg-gray-200/80 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-200/80 backdrop-blur-sm p-4">
             <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-6 flex flex-col gap-4">
-                <h2 className="text-xl font-semibold text-center">
-                    {t("addUser.title")}
-                </h2>
+                <h2 className="text-xl font-semibold text-center">Nuevo chat</h2>
 
                 <input
-                    value={identifier}
-                    onChange={(e) => setIdentifier(e.target.value)}
-                    placeholder={t("addUser.placeholder")}
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Buscar con quién chatear (nombre, email, id)"
                     className="w-full border border-gray-300 rounded-lg px-4 py-2
                     focus:outline-none focus:ring-2 focus:ring-teal-600"
+                    autoFocus
                 />
 
-                {!user && (
-                    <button
-                        onClick={handleSearch}
-                        disabled={isLoading}
-                        className="w-full bg-blue-600 text-white rounded-lg
-                        py-2 hover:bg-blue-700 disabled:opacity-50 transition"
-                    >
-                        {isLoading ? t("common.loading") : t("common.search")}
-                    </button>
-                )}
-
-                {error && (<p className="text-red-600 text-center text-sm min-h-[1.5rem]">{error}</p>)}
-
-                {user && (
-                    <div className="border rounded-lg p-4 bg-gray-50 shadow-sm flex flex-col items-center gap-2">
-                        <div className="text-lg font-medium">{user.name}</div>
-                        <div className="text-sm text-gray-500">
-                            {user.email ?? user.id}
-                        </div>
-
-                        <button
-                            onClick={handleAdd}
-                            className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition"
-                        >
-                            {t("addUser.confirm")}
-                        </button>
-                    </div>
-                )}
+                <div className="max-h-80 overflow-y-auto flex flex-col gap-1.5">
+                    {isLoading && <p className="text-sm text-gray-500 text-center py-4">Cargando directorio…</p>}
+                    {isError && <p className="text-sm text-red-600 text-center py-4">No se pudo cargar el directorio (IDS)</p>}
+                    {!isLoading && !isError && results.length === 0 && (
+                        <p className="text-sm text-gray-500 text-center py-4">Sin resultados</p>
+                    )}
+                    {results.map((u) => {
+                        const name = idsDisplayName(u);
+                        return (
+                            <button
+                                key={u.id}
+                                onClick={() => startChat(u)}
+                                disabled={creating}
+                                className="flex items-center gap-3 border rounded-lg px-3 py-2
+                                text-left hover:bg-gray-50 disabled:opacity-50"
+                            >
+                                <span className="w-9 h-9 rounded-full bg-teal-950 text-white text-sm
+                                flex items-center justify-center shrink-0">{initials(name)}</span>
+                                <span className="flex flex-col min-w-0 flex-1">
+                                    <span className="font-medium truncate">
+                                        {name}
+                                        {u.verified && <span className="ml-1 text-teal-600" title="verificado">✓</span>}
+                                    </span>
+                                    {u.email && <span className="text-xs text-gray-500 truncate">{u.email}</span>}
+                                </span>
+                                {u.role && (
+                                    <span className={`text-[10px] uppercase px-2 py-0.5 rounded-full shrink-0
+                                    ${roleColor[u.role] ?? "bg-gray-100 text-gray-600"}`}>{u.role}</span>
+                                )}
+                            </button>
+                        );
+                    })}
+                </div>
 
                 <button
                     onClick={() => navigate(-1)}
                     className="w-full border border-gray-300 py-2 rounded-lg hover:bg-gray-100 transition"
                 >
-                    {t("common.cancel")}
+                    Cancelar
                 </button>
             </div>
         </div>
