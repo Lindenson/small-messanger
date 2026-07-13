@@ -1,0 +1,46 @@
+# =============================================================================
+# hormiga-coturn — TURN/STUN server for the messenger's WebRTC video calls.
+#
+# This reproduces the container that runs LIVE on the shared Hormiga prod host
+# (91.99.6.25) as `hormiga-coturn`. It is OWNED by this repo (small-messanger),
+# NOT by hormiga-deploy. Deploy it standalone with its own project name so it
+# does not collide with the demo `coturn` service in the repo-root
+# docker-compose.yaml (that root stack is the local standalone demo, not prod).
+#
+#   TURN_USER=... TURN_PASSWORD=... \
+#     docker compose -p hormiga-coturn -f deploy/hormiga-coturn.compose.yml up -d
+#
+# Secrets: NEVER commit real credentials. TURN_USER / TURN_PASSWORD must be
+# supplied at deploy time (env or an untracked deploy/.env). See DEPLOYMENT-CHANGES.md.
+#
+# Firewall (cloud + host) MUST keep these open, or ICE/relay fails:
+#   3478/tcp, 3478/udp   (TURN/STUN control)
+#   49160-49200/udp      (media relay range)
+#
+# NOTE: uses host networking + --external-ip so relay candidates advertise the
+# public IP. Cloudflare only proxies HTTP, so the frontend points VITE_TURN_HOST
+# at the raw host IP (see front/src/shared/config/webrtc.ts), not the CF hostname.
+# =============================================================================
+services:
+  coturn:
+    image: coturn/coturn:4.14.0-r0          # pinned to the live image tag
+    container_name: hormiga-coturn
+    network_mode: host                      # relay ports + external-ip need host net
+    restart: unless-stopped
+    volumes:
+      - coturn-data:/var/lib/coturn
+    command:
+      - -n                                  # no config file; all flags on the CLI
+      - --realm=${TURN_REALM:-hormi.isolutions.io}
+      - --lt-cred-mech                       # long-term credential mechanism
+      - --fingerprint
+      - --user=${TURN_USER}:${TURN_PASSWORD} # static long-term credential (supply via env)
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --no-tls                             # TLS/DTLS terminated elsewhere; plain TURN here
+      - --no-dtls
+      - --external-ip=${TURN_EXTERNAL_IP:-91.99.6.25}
+
+volumes:
+  coturn-data:

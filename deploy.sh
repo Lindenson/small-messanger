@@ -11,6 +11,10 @@
 # disk per request, so a dist swap is picked up immediately — no restart needed.
 # Layout on the server:  <DEPLOY_PATH>/{dist/,server.mjs}
 #
+# This script only ships the SPA. The one-time infra footprint (coturn, edge
+# nginx routes, front4mess systemd unit) lives in deploy/ — provision it once with
+# deploy/deploy-infra.sh. See DEPLOYMENT-CHANGES.md for the full footprint + secrets.
+#
 # Usage:
 #   DEPLOY_HOST=den@91.99.6.25 ./deploy.sh
 #
