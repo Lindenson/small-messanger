@@ -8,6 +8,59 @@ Legend: 🆕 = added this session (attachments) · ♻️ = added earlier in the
 
 ---
 
+## Reproducible deploy — OWNED BY THIS REPO (read first)
+
+small-messanger's full footprint on the shared Hormiga prod host (`91.99.6.25`,
+`hormi.isolutions.io`) is now captured as reproducible artifacts **in this repo**,
+under `deploy/`. This is the source of truth — these deltas are **NOT** to be pulled
+into hormiga-deploy.
+
+| Footprint item | Reproducible artifact (this repo) | Was it already declared? |
+|---|---|---|
+| `hormiga-coturn` (TURN/STUN for WebRTC) | `deploy/hormiga-coturn.compose.yml` | ⚠️ Partially — the repo-root `docker-compose.yaml` had a **demo** coturn (`realm=example.com`, bridge net, `user:pass`, no `--external-ip`). Prod differs (host net, `realm=hormi.isolutions.io`, `--external-ip=91.99.6.25`, `--no-tls --no-dtls`). Now reproduced exactly. |
+| Edge nginx routes `/messenger-ui/` (+ WebRTC Permissions-Policy) and `/messenger-attachments` | `deploy/nginx/messenger-edge.conf` | ❌ Live-only drift — absent from both the repo-root `nginx/default.conf` (that's the standalone-demo vhost) and from hormiga-deploy's `04-edge`. Now captured. |
+| front4mess :5555 static SPA server | `deploy/front4mess.service` + existing `front/server.mjs` + `deploy.sh` | 🟡 The Node server (`front/server.mjs`) and the SPA dist-swap (`deploy.sh`) were present; the **systemd unit** was live-only. Now captured. |
+| Infra installer (coturn + nginx + unit) | `deploy/deploy-infra.sh` | ❌ New — one-shot provisioner. Routine UI redeploy stays `deploy.sh`. |
+| Required secrets/config | `deploy/.env.example` | ❌ New. |
+
+**Secrets rule:** no real key/secret is committed. `deploy/.env` (gitignored) or
+env vars supply `TURN_USER`/`TURN_PASSWORD` (and `MESSENGER_ADMIN_KEY`, see below).
+
+### ⚠️ Admin-key correction (supersedes §3 below)
+
+The messenger admin key and the IDS admin key are **two different keys** — an
+earlier assumption in §3 that `hormiga.admin.key == IDS_ADMIN_KEY` is **stale**:
+
+- **Messenger key** (`hormiga.admin.key`, currently `81b2…`) — guards OUR messenger's
+  admin/service HTTP endpoints, e.g. `POST /api/chats` chat provisioning. Supply it as
+  **`MESSENGER_ADMIN_KEY`**. This is the key small-messanger currently has **stale**.
+- **IDS key** (`IDS_ADMIN_KEY`, currently `be6fa…`) — guards kratosgate `/ids/admin/**`
+  (user directory lookups). This one is **current/valid**; leave it alone.
+
+**Root cause (fixed in this PR):** the SPA used ONE build-time constant
+`VITE_IDS_ADMIN_KEY` as `X-Admin-Key` for **both** `/ids/admin/users` (needs the IDS key)
+**and** `POST /api/chats` (needs the messenger key). Once the two keys diverged, chat
+provisioning 403'd (`"Se requiere X-Admin-Key válido para crear chats"`). This PR splits
+the constants in `front/src/shared/config/api.ts`:
+
+- `IDS_ADMIN_KEY`  ← `VITE_IDS_ADMIN_KEY`  (= IDS key `be6fa…`) — used by `idsApi`.
+- `MESSENGER_ADMIN_KEY` ← `VITE_MESSENGER_ADMIN_KEY` (= messenger key `81b2…`, falls back
+  to `VITE_IDS_ADMIN_KEY` for single-key setups) — used by `chatApi.createChat`.
+
+⚠️ **Build-time deploy requirement:** set BOTH vars before `npm run build` (they bake into
+the bundle). With distinct keys, `VITE_MESSENGER_ADMIN_KEY` MUST be the messenger key `81b2…`
+or UI chat creation stays 403. Values are NOT committed — see `front/.env.example`.
+
+⚠️ **Security:** admin keys shipped in a browser bundle are exposed to every visitor. This
+is a demo-only crutch; the real fix is a server-side proxy (or short-lived scoped token)
+holding the key so it never reaches the browser.
+
+> NOTE: `/api` and `/_next/static` routes observed on the host belong to a **separate**
+> app (Dental Zone, Next.js on `127.0.0.1:8181`, vhost `hormi-day.isolutions.io`) — they
+> are **not** small-messanger's and are intentionally excluded from `deploy/nginx/`.
+
+---
+
 ## 0. Big picture (read first)
 
 - **The `hormiga-messenger-app` container is an ORPHAN** ⚠️ — it is **not defined in any compose file**

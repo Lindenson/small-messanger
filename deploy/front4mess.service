@@ -1,0 +1,29 @@
+# systemd unit for the messenger test UI static server (front4mess).
+#
+# Serves the built Vite SPA (deploy/../front/dist) via the zero-dependency Node
+# server at front/server.mjs, bound to loopback :5555. The edge vhost proxies
+# /messenger-ui/ -> 127.0.0.1:5555 (see deploy/nginx/messenger-edge.conf).
+#
+# Runs LIVE on 91.99.6.25 as /etc/systemd/system/front4mess.service; committed
+# here so the unit is reproducible from this repo. deploy.sh ships fresh dist/
+# into WorkingDirectory and the server reads disk per request (no restart needed).
+#
+# Install:
+#   sudo cp deploy/front4mess.service /etc/systemd/system/front4mess.service
+#   sudo cp front/server.mjs /opt/front4mess/server.mjs
+#   sudo systemctl daemon-reload && sudo systemctl enable --now front4mess
+[Unit]
+Description=front4mess (Hormigas messenger test UI)
+After=network.target
+
+[Service]
+Type=simple
+Environment=PORT=5555
+Environment=HOST=127.0.0.1
+WorkingDirectory=/opt/front4mess
+ExecStart=/usr/bin/node /opt/front4mess/server.mjs
+Restart=on-failure
+User=den
+
+[Install]
+WantedBy=multi-user.target

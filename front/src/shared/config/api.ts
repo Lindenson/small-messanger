@@ -9,11 +9,24 @@ export const MESSENGER_BASE =
 export const MESSENGER_API = `${MESSENGER_BASE}/api`;
 export const MESSENGER_WS_PATH = `${MESSENGER_BASE}/ws`;
 
-// IDS (KratosGate) admin directory for user search + admin chat creation. The edge route
-// (host-relative, same origin) is provided by the platform; the frontend sends the admin key
-// as X-Admin-Key. TEMPORARY concept-demo crutch — the key lives ONLY in the frontend .env and
-// ships in the bundle; delete it after the demo. Override the path with VITE_IDS_URL.
+// IDS (KratosGate) admin directory for user search. The edge route (host-relative, same
+// origin) is provided by the platform; the frontend sends the IDS admin key as X-Admin-Key.
+// Override the path with VITE_IDS_URL.
+//
+// ⚠️ SECURITY / TEMPORARY DEMO-ONLY: these admin keys live in the frontend .env and are
+// baked into the JS bundle at build time — anyone who loads the app can read them. This is a
+// concept-demo crutch. The real fix is a server-side proxy (or a short-lived, scoped token)
+// that holds the admin key so it never reaches the browser. Rotate + remove after the demo.
 export const MESSENGER_IDS_URL =
     (import.meta.env.VITE_IDS_URL as string | undefined) ?? "/ids";
+
+// IDS (kratosgate) admin key — for /ids/admin/** directory lookups only.
 export const IDS_ADMIN_KEY =
     (import.meta.env.VITE_IDS_ADMIN_KEY as string | undefined) ?? "";
+
+// Messenger admin key — for the messenger's own admin/service endpoints (e.g.
+// POST /api/chats provisioning). This is a DIFFERENT key from IDS_ADMIN_KEY; sending the
+// IDS key here yields 403 "X-Admin-Key inválido". Falls back to IDS_ADMIN_KEY only for
+// backward compatibility with single-key setups where both backends share one key.
+export const MESSENGER_ADMIN_KEY =
+    (import.meta.env.VITE_MESSENGER_ADMIN_KEY as string | undefined) ?? IDS_ADMIN_KEY;

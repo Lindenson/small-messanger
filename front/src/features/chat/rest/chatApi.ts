@@ -2,7 +2,7 @@ import {createApi, fetchBaseQuery} from "@reduxjs/toolkit/query/react";
 import {type ChatMessage} from "@/features/chat/model/schema/domainChatMessage.schema.ts";
 import {wireToChatMessage} from "@/features/chat/model/mapper.ts";
 import {parseWireMessage} from "@/features/chat/model/schema/wireMessage.schema.ts";
-import {IDS_ADMIN_KEY, MESSENGER_API} from "@/shared/config/api.ts";
+import {MESSENGER_ADMIN_KEY, MESSENGER_API} from "@/shared/config/api.ts";
 
 /** Raw backend Conversation (GET /api/chats). */
 type Conversation = {
@@ -111,7 +111,7 @@ export const chatApi = createApi({
                 url: `/chats`,
                 method: "POST",
                 body: { ...body, metadata: body.metadata ?? {} },
-                headers: IDS_ADMIN_KEY ? { "X-Admin-Key": IDS_ADMIN_KEY } : undefined,
+                headers: MESSENGER_ADMIN_KEY ? { "X-Admin-Key": MESSENGER_ADMIN_KEY } : undefined,
             }),
             invalidatesTags: ["Chats"],
         }),
