@@ -37,15 +37,23 @@ earlier assumption in §3 that `hormiga.admin.key == IDS_ADMIN_KEY` is **stale**
 - **IDS key** (`IDS_ADMIN_KEY`, currently `be6fa…`) — guards kratosgate `/ids/admin/**`
   (user directory lookups). This one is **current/valid**; leave it alone.
 
-⚠️ **Frontend single-key collision (needs a code follow-up, not just env):** the SPA
-sends ONE build-time constant `VITE_IDS_ADMIN_KEY` as `X-Admin-Key` to **both**
-`/ids/admin/users` (needs the IDS key) **and** `POST /api/chats` (needs the messenger
-key) — see `front/src/features/chat/rest/chatApi.ts` and `front/src/features/directory/idsApi.ts`,
-both importing `IDS_ADMIN_KEY` from `front/src/shared/config/api.ts`. Now that the two
-keys have diverged, a single constant cannot satisfy both endpoints. Recommended fix:
-add a second constant `VITE_MESSENGER_ADMIN_KEY` (= the messenger key `81b2…`) and use
-it for the `chatApi` `X-Admin-Key`, keeping `VITE_IDS_ADMIN_KEY` (= `be6fa…`) for
-`idsApi`. Until then, chat provisioning via the UI will 403 against the current backend.
+**Root cause (fixed in this PR):** the SPA used ONE build-time constant
+`VITE_IDS_ADMIN_KEY` as `X-Admin-Key` for **both** `/ids/admin/users` (needs the IDS key)
+**and** `POST /api/chats` (needs the messenger key). Once the two keys diverged, chat
+provisioning 403'd (`"Se requiere X-Admin-Key válido para crear chats"`). This PR splits
+the constants in `front/src/shared/config/api.ts`:
+
+- `IDS_ADMIN_KEY`  ← `VITE_IDS_ADMIN_KEY`  (= IDS key `be6fa…`) — used by `idsApi`.
+- `MESSENGER_ADMIN_KEY` ← `VITE_MESSENGER_ADMIN_KEY` (= messenger key `81b2…`, falls back
+  to `VITE_IDS_ADMIN_KEY` for single-key setups) — used by `chatApi.createChat`.
+
+⚠️ **Build-time deploy requirement:** set BOTH vars before `npm run build` (they bake into
+the bundle). With distinct keys, `VITE_MESSENGER_ADMIN_KEY` MUST be the messenger key `81b2…`
+or UI chat creation stays 403. Values are NOT committed — see `front/.env.example`.
+
+⚠️ **Security:** admin keys shipped in a browser bundle are exposed to every visitor. This
+is a demo-only crutch; the real fix is a server-side proxy (or short-lived scoped token)
+holding the key so it never reaches the browser.
 
 > NOTE: `/api` and `/_next/static` routes observed on the host belong to a **separate**
 > app (Dental Zone, Next.js on `127.0.0.1:8181`, vhost `hormi-day.isolutions.io`) — they
