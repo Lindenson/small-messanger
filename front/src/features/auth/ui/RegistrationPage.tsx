@@ -31,7 +31,16 @@ export default function RegistrationPage() {
                 password: formData.get("password"),
                 traits: {
                     email: formData.get("traits.email"),
-                    name: formData.get("traits.name"),
+                    // The platform identity schema models name as an object
+                    // {first,last}; sending a scalar => Kratos "expected object".
+                    name: {
+                        first: formData.get("traits.name.first"),
+                        last: formData.get("traits.name.last"),
+                    },
+                    // Role gates identity-header injection at the edge (only
+                    // client/master are honored); default to client so a new
+                    // sign-up is usable.
+                    role: formData.get("traits.role") || "client",
                 },
             } as UpdateRegistrationFlowBody);
 
@@ -91,7 +100,9 @@ export default function RegistrationPage() {
 
     const hiddenNodes = findHiddenNodes(flow);
     const emailNode = findInputNode(flow, "traits.email");
-    const nameNode = findInputNode(flow, "traits.name");
+    const firstNode = findInputNode(flow, "traits.name.first");
+    const lastNode = findInputNode(flow, "traits.name.last");
+    const roleNode = findInputNode(flow, "traits.role");
     const passwordNode = findInputNode(flow, "password");
 
     return (
@@ -112,7 +123,11 @@ export default function RegistrationPage() {
 
                 {emailNode && renderRegistration(emailNode, {type: "email", required: true}, flow)}
 
-                {nameNode && renderRegistration(nameNode, {type: "text", required: true}, flow)}
+                {firstNode && renderRegistration(firstNode, {type: "text", required: true}, flow)}
+
+                {lastNode && renderRegistration(lastNode, {type: "text", required: true}, flow)}
+
+                {roleNode && renderRegistration(roleNode, {type: "text"}, flow)}
 
                 {passwordNode && renderRegistration(
                     passwordNode,
