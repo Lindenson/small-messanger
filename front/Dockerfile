@@ -15,6 +15,29 @@ COPY . .
 # directly (not `npm run build`) because the repo's `tsc -b` trips on a stale
 # test; the Vite build is the real gate (mirrors deploy.sh).
 ARG BASE=/messenger-ui/
+# Build-time frontend config baked into the bundle (Vite exposes VITE_* from the
+# environment). The admin keys are readable in the shipped JS — TEMPORARY demo
+# design (see front/.env.example); pass them at build, never commit real values.
+ARG VITE_MESSENGER_BASE=/messenger
+ARG VITE_KRATOS_URL=/.ory/kratos/public
+ARG VITE_IDS_URL=/ids/admin
+ARG VITE_IDS_ADMIN_KEY=
+ARG VITE_MESSENGER_ADMIN_KEY=
+ARG VITE_TURN_HOST=91.99.6.25
+ARG VITE_TURN_USER=user
+ARG VITE_TURN_PASS=pass
+# Write .env.production so Vite reliably picks the values up (it loads .env* files
+# for `vite build`; reading them from the process env is not guaranteed).
+RUN { \
+      echo "VITE_MESSENGER_BASE=$VITE_MESSENGER_BASE"; \
+      echo "VITE_KRATOS_URL=$VITE_KRATOS_URL"; \
+      echo "VITE_IDS_URL=$VITE_IDS_URL"; \
+      echo "VITE_IDS_ADMIN_KEY=$VITE_IDS_ADMIN_KEY"; \
+      echo "VITE_MESSENGER_ADMIN_KEY=$VITE_MESSENGER_ADMIN_KEY"; \
+      echo "VITE_TURN_HOST=$VITE_TURN_HOST"; \
+      echo "VITE_TURN_USER=$VITE_TURN_USER"; \
+      echo "VITE_TURN_PASS=$VITE_TURN_PASS"; \
+    } > .env.production
 RUN npx vite build --base="$BASE"
 
 FROM node:20-alpine
