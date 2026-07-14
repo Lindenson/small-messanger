@@ -38,6 +38,9 @@ export const idsApi = createApi({
         },
     }),
     endpoints: (builder) => ({
+        // Loads the whole directory (used only for name resolution in the chat
+        // list / calls). The NEW-CHAT picker uses searchIdsUsers instead so it
+        // never downloads everyone.
         getIdsUsers: builder.query<IdsUser[], void>({
             query: () => "/users",
             transformResponse: (resp: unknown): IdsUser[] => {
@@ -45,7 +48,38 @@ export const idsApi = createApi({
                 return Array.isArray(users) ? (users as IdsUser[]) : [];
             },
         }),
+        // Server-side, paginated type-ahead over name/email (IDS pg_trgm). Keyset
+        // pagination: pass the previous page's nextToken to get the next page.
+        searchIdsUsers: builder.query<
+            { users: IdsUser[]; nextToken?: string; total: number },
+            { q: string; pageToken?: string; pageSize?: number }
+        >({
+            query: ({q, pageToken, pageSize = 20}) => {
+                const p = new URLSearchParams({q, page_size: String(pageSize)});
+                if (pageToken) p.set("page_token", pageToken);
+                return `/users/search?${p.toString()}`;
+            },
+            transformResponse: (resp: unknown) => {
+                const r = resp as { users?: unknown; next_token?: string; total?: number };
+                return {
+                    users: Array.isArray(r?.users) ? (r.users as IdsUser[]) : [],
+                    nextToken: r?.next_token || undefined,
+                    total: r?.total ?? 0,
+                };
+            },
+        }),
+        // A single user by id (used to resolve the current user's own role,
+        // without downloading the whole directory).
+        getIdsUser: builder.query<IdsUser | null, string>({
+            query: (id) => `/users/${encodeURIComponent(id)}`,
+            transformResponse: (resp: unknown): IdsUser | null =>
+                resp && (resp as IdsUser).id ? (resp as IdsUser) : null,
+        }),
     }),
 });
 
-export const {useGetIdsUsersQuery} = idsApi;
+export const {
+    useGetIdsUsersQuery,
+    useLazySearchIdsUsersQuery,
+    useGetIdsUserQuery,
+} = idsApi;

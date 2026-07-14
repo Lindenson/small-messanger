@@ -1,11 +1,12 @@
-import {useMemo, useState} from "react";
+import {useEffect, useState} from "react";
 import {useNavigate} from "react-router-dom";
 import {useDispatch, useSelector} from "react-redux";
 
 import type {AppDispatch, RootState} from "@/store/store.ts";
 import {chatApi, useCreateChatMutation} from "@/features/chat/rest/chatApi.ts";
 import {setSelectedChatId} from "@/features/chat/model/slices/chatUiSlice.ts";
-import {idsDisplayName, useGetIdsUsersQuery, type IdsUser} from "@/features/directory/idsApi.ts";
+import {idsDisplayName, useGetIdsUserQuery, useLazySearchIdsUsersQuery, type IdsUser} from "@/features/directory/idsApi.ts";
+import {isNotLogged} from "@/shared/utils/checks.ts";
 import {logger} from "@/shared/logger/logger.ts";
 import toast from "react-hot-toast";
 
@@ -27,28 +28,54 @@ const roleColor: Record<string, string> = {
 export default function AddContactPage() {
     const myId = useSelector((s: RootState) => s.user.id);
     const dispatch = useDispatch<AppDispatch>();
-    const {data: users = [], isLoading, isError} = useGetIdsUsersQuery();
-    const [query, setQuery] = useState("");
     const [createChat, {isLoading: creating}] = useCreateChatMutation();
     const navigate = useNavigate();
 
-    const myRole = useMemo(
-        () => (users.find((u) => u.id === myId)?.role ?? "").toLowerCase(),
-        [users, myId]
-    );
+    // Current user's own role (to assign client/master on the pair) — resolved by
+    // id, so we don't download the whole directory just for this.
+    const {data: me} = useGetIdsUserQuery(myId, {skip: isNotLogged(myId)});
+    const myRole = (me?.role ?? "").toLowerCase();
 
-    const results = useMemo(() => {
-        const q = query.trim().toLowerCase();
-        return users
-            .filter((u) => u.id !== myId)
-            .filter(
-                (u) =>
-                    !q ||
-                    idsDisplayName(u).toLowerCase().includes(q) ||
-                    (u.email ?? "").toLowerCase().includes(q) ||
-                    u.id.toLowerCase().includes(q)
-            );
-    }, [users, query, myId]);
+    // Debounced, server-side, paginated search (IDS /users/search, pg_trgm) — no
+    // full directory download, no client-side filtering.
+    const MIN_CHARS = 2;
+    const [query, setQuery] = useState("");
+    const [debounced, setDebounced] = useState("");
+    const [items, setItems] = useState<IdsUser[]>([]);
+    const [nextToken, setNextToken] = useState<string | undefined>(undefined);
+    const [runSearch, {isFetching, isError}] = useLazySearchIdsUsersQuery();
+
+    useEffect(() => {
+        const t = setTimeout(() => setDebounced(query.trim()), 300);
+        return () => clearTimeout(t);
+    }, [query]);
+
+    useEffect(() => {
+        if (debounced.length < MIN_CHARS) {
+            setItems([]);
+            setNextToken(undefined);
+            return;
+        }
+        let cancelled = false;
+        runSearch({q: debounced})
+            .unwrap()
+            .then((page) => {
+                if (cancelled) return;
+                setItems(page.users.filter((u) => u.id !== myId));
+                setNextToken(page.nextToken);
+            })
+            .catch(() => { /* isError surfaces it */ });
+        return () => { cancelled = true; };
+    }, [debounced, myId, runSearch]);
+
+    async function loadMore() {
+        if (!nextToken) return;
+        try {
+            const page = await runSearch({q: debounced, pageToken: nextToken}).unwrap();
+            setItems((prev) => [...prev, ...page.users.filter((u) => u.id !== myId)]);
+            setNextToken(page.nextToken);
+        } catch { /* keep current items */ }
+    }
 
     async function startChat(other: IdsUser) {
         const otherRole = (other.role ?? "").toLowerCase();
@@ -108,12 +135,16 @@ export default function AddContactPage() {
                 />
 
                 <div className="max-h-80 overflow-y-auto flex flex-col gap-1.5">
-                    {isLoading && <p className="text-sm text-gray-500 text-center py-4">Cargando directorio…</p>}
-                    {isError && <p className="text-sm text-red-600 text-center py-4">No se pudo cargar el directorio (IDS)</p>}
-                    {!isLoading && !isError && results.length === 0 && (
+                    {debounced.length < MIN_CHARS && (
+                        <p className="text-sm text-gray-500 text-center py-4">Escribe al menos {MIN_CHARS} caracteres…</p>
+                    )}
+                    {debounced.length >= MIN_CHARS && isError && (
+                        <p className="text-sm text-red-600 text-center py-4">No se pudo buscar (IDS)</p>
+                    )}
+                    {debounced.length >= MIN_CHARS && !isError && !isFetching && items.length === 0 && (
                         <p className="text-sm text-gray-500 text-center py-4">Sin resultados</p>
                     )}
-                    {results.map((u) => {
+                    {items.map((u) => {
                         const name = idsDisplayName(u);
                         return (
                             <button
@@ -139,6 +170,16 @@ export default function AddContactPage() {
                             </button>
                         );
                     })}
+                    {isFetching && <p className="text-sm text-gray-500 text-center py-2">Buscando…</p>}
+                    {nextToken && !isFetching && (
+                        <button
+                            type="button"
+                            onClick={loadMore}
+                            className="text-sm text-teal-800 hover:underline py-2"
+                        >
+                            Mostrar más
+                        </button>
+                    )}
                 </div>
 
                 <button
