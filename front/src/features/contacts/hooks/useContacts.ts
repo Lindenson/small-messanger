@@ -3,7 +3,7 @@ import type {RootState} from "@/store/store.ts";
 import {useGetChatsQuery, type ChatSummary} from "@/features/chat/rest/chatApi.ts";
 import type {Contact} from "@/features/contacts/model/schema/domainContract.schema.ts";
 import {isNotLogged} from "@/shared/utils/checks.ts";
-import {idsDisplayName, useGetIdsUsersQuery} from "@/features/directory/idsApi.ts";
+import {idsDisplayName, useGetIdsUsersByIdsQuery} from "@/features/directory/idsApi.ts";
 import {useMemo} from "react";
 
 export function useContacts() {
@@ -12,12 +12,16 @@ export function useContacts() {
     const skip = isNotLogged(myId);
 
     const {data: summaries = [], isLoading, isError} = useGetChatsQuery({myId}, {skip});
-    const {data: idsUsers = []} = useGetIdsUsersQuery(undefined, {skip});
 
-    const idsById = useMemo(
-        () => Object.fromEntries(idsUsers.map((u) => [u.id, u])),
-        [idsUsers]
+    // Resolve only the chat counterparts by id (stable, de-duped key) instead of
+    // downloading the whole IDS directory.
+    const counterpartIds = useMemo(
+        () => Array.from(new Set(summaries.map((s) => s.counterpartId))).sort(),
+        [summaries]
     );
+    const {data: idsById = {}} = useGetIdsUsersByIdsQuery(counterpartIds, {
+        skip: skip || counterpartIds.length === 0,
+    });
 
     // Names resolve from the IDS directory (all users), then presence (online peers), then the
     // order label / identity id. Online status comes from presence (PRESENT_* frames).

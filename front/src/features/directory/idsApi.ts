@@ -75,6 +75,26 @@ export const idsApi = createApi({
             transformResponse: (resp: unknown): IdsUser | null =>
                 resp && (resp as IdsUser).id ? (resp as IdsUser) : null,
         }),
+        // Resolve only the given ids (e.g. the chat counterparts) into an
+        // id -> user map, instead of downloading the whole directory. Fetches
+        // each id in parallel through the same edge (session + X-Admin-Key);
+        // missing ids are simply omitted. Pass a STABLE (sorted, de-duped) id
+        // array so the RTK cache key is stable across re-renders.
+        getIdsUsersByIds: builder.query<Record<string, IdsUser>, string[]>({
+            async queryFn(ids, _api, _extra, baseQuery) {
+                const unique = Array.from(new Set(ids.filter(Boolean)));
+                if (unique.length === 0) return {data: {}};
+                const results = await Promise.all(
+                    unique.map((id) => baseQuery(`/users/${encodeURIComponent(id)}`))
+                );
+                const map: Record<string, IdsUser> = {};
+                results.forEach((r, i) => {
+                    const u = r.data as IdsUser | null | undefined;
+                    if (u && u.id) map[unique[i]] = u;
+                });
+                return {data: map};
+            },
+        }),
     }),
 });
 
@@ -82,4 +102,5 @@ export const {
     useGetIdsUsersQuery,
     useLazySearchIdsUsersQuery,
     useGetIdsUserQuery,
+    useGetIdsUsersByIdsQuery,
 } = idsApi;
