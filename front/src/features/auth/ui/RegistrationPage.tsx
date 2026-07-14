@@ -1,5 +1,5 @@
 import {type FormEvent, useState} from "react";
-import {useNavigate} from "react-router-dom";
+import {Link, useNavigate} from "react-router-dom";
 import type {RegistrationFlow, UiNode, UiNodeInputAttributes, UpdateRegistrationFlowBody,} from "@ory/client";
 import {
     extractFieldErrors,
@@ -143,9 +143,9 @@ export default function RegistrationPage() {
                 </button>
                 <p className="mt-4 text-center text-sm text-gray-600">
                     To {' '}
-                    <a href="/login" className="text-teal-950 hover:underline">
+                    <Link to="/login" className="text-teal-950 hover:underline">
                         login
-                    </a>
+                    </Link>
                 </p>
             </form>
         </div>
