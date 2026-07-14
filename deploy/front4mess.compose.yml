@@ -1,0 +1,20 @@
+# Runs the messenger UI (front4mess) as a container on 127.0.0.1:5555 with
+# auto-restart — replaces the front4mess.service systemd unit + the bare
+# `node server.mjs` process. The platform edge (nginx /messenger-ui/ ->
+# 127.0.0.1:5555) is unchanged.
+#
+#   docker compose -f deploy/front4mess.compose.yml up -d --build
+#
+# Bound to 127.0.0.1 (not 0.0.0.0): reachable only via the edge, like the rest
+# of the platform's app ports.
+services:
+  front4mess:
+    build:
+      context: ../front
+      args:
+        BASE: ${BASE:-/messenger-ui/}
+    image: front4mess:latest
+    container_name: front4mess
+    ports:
+      - "127.0.0.1:5555:5555"
+    restart: unless-stopped
