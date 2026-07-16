@@ -10,7 +10,9 @@ import {useContacts} from "../../contacts/hooks/useContacts.ts";
 import {logger} from "@/shared/logger/logger.ts";
 import type {Contact} from "@/features/contacts/model/schema/domainContract.schema.ts";
 import {chatMessagesService} from "@/features/chat/model/services/chatMessages.service.ts";
-import {useBlockChatMutation, useUnblockChatMutation, useDeleteMessageMutation, useAttachmentUploadUrlMutation, useAttachmentConfirmMutation, useAttachmentDownloadUrlMutation} from "@/features/chat/rest/chatApi.ts";
+import {chatApi, useBlockChatMutation, useUnblockChatMutation, useDeleteMessageMutation, useAttachmentUploadUrlMutation, useAttachmentConfirmMutation, useAttachmentDownloadUrlMutation} from "@/features/chat/rest/chatApi.ts";
+import {retryMessage as retryOutboxMessage, discardMessage as discardOutboxMessage} from "@/features/chat/model/slices/outboxSlice.ts";
+import type {ChatMessageStatus} from "@/features/chat/model/types.ts";
 import toast from "react-hot-toast";
 import {useTranslation} from "react-i18next";
 import {buildReadIn, buildTypingIn} from "@/features/chat/model/schema/wireMessage.schema.ts";
@@ -182,6 +184,32 @@ export function useChat() {
         dispatch(setSelectedChatId(null));
     }, [clearChat, dispatch]);
 
+    /* ======================
+       Outbox delivery status (for per-message 🕐 / ⚠ + retry/discard on failed sends)
+    ====================== */
+    const outboxMessages = useSelector((state: RootState) => state.outbox.messages);
+    const outboxStatusById = useMemo(() => {
+        const map: Record<string, ChatMessageStatus> = {};
+        for (const m of outboxMessages) map[m.id] = m.status;
+        return map;
+    }, [outboxMessages]);
+
+    const retryMessage = useCallback((id: string) => {
+        dispatch(retryOutboxMessage(id));
+        dispatch(flushOutbox());
+    }, [dispatch]);
+
+    const discardMessage = useCallback((id: string) => {
+        dispatch(discardOutboxMessage(id));
+        // Also drop the optimistic row from the open history (it was never accepted by the server).
+        if (selectedChatId) {
+            dispatch(chatApi.util.updateQueryData("getChatHistory", {myId, chatId: selectedChatId}, (draft) => {
+                const i = draft.findIndex((m) => m.id === id);
+                if (i >= 0) draft.splice(i, 1);
+            }));
+        }
+    }, [dispatch, myId, selectedChatId]);
+
     // Throttled "I'm typing" notifier (TYPING_IN → peer's TYPING_OUT). Called on input change.
     const lastTypingRef = useRef(0);
     const notifyTyping = useCallback(() => {
@@ -215,5 +243,8 @@ export function useChat() {
         deleteChat,
         unreadChats,
         messages,
+        outboxStatusById,
+        retryMessage,
+        discardMessage,
     };
 }

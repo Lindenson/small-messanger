@@ -3,6 +3,28 @@ import {type ChatMessage} from "@/features/chat/model/schema/domainChatMessage.s
 import {wireToChatMessage} from "@/features/chat/model/mapper.ts";
 import {parseWireMessage} from "@/features/chat/model/schema/wireMessage.schema.ts";
 import {MESSENGER_ADMIN_KEY, MESSENGER_API} from "@/shared/config/api.ts";
+import {HISTORY_MAX_PAGES, HISTORY_PAGE_SIZE} from "@/shared/config/chat.ts";
+import {loadHistoryFromDB, saveHistoryToDB} from "@/features/chat/db/db.ts";
+
+// Wire rows (up to a page) → domain messages, then dedup by clientId||id (guards against any
+// duplicate the server returns; history rows normally carry no clientId — see the dedup note).
+function toMessages(raw: unknown): ChatMessage[] {
+    if (!Array.isArray(raw)) return [];
+    return raw
+        .map(parseWireMessage)
+        .filter((m): m is NonNullable<typeof m> => Boolean(m))
+        .map(wireToChatMessage);
+}
+function dedupMessages(rows: ChatMessage[]): ChatMessage[] {
+    const seen = new Set<string>();
+    return rows.filter((m) => {
+        const key = m.clientId || m.id;
+        if (seen.has(key) || seen.has(m.id)) return false;
+        seen.add(key);
+        seen.add(m.id);
+        return true;
+    });
+}
 
 /** Raw backend Conversation (GET /api/chats). */
 type Conversation = {
@@ -21,8 +43,6 @@ export type ChatSummary = {
     orderId?: string;
     blocked: boolean;
 };
-
-const HISTORY_PAGE = 200;
 
 export const chatApi = createApi({
     reducerPath: "chatApi",
@@ -53,30 +73,60 @@ export const chatApi = createApi({
         // --------------------
         // Conversation history (cursor-paginated). chatId === conversationId.
         // --------------------
+        // Forward-paged history: the backend only serves message_id > since (ASC, LIMIT), so a
+        // single request returns the OLDEST page. We page forward (cursor = last messageId) and
+        // accumulate the full history, capped at HISTORY_MAX_PAGES. Returns the same ChatMessage[]
+        // shape as before, so consumers are unchanged; rendering is windowed downstream.
         getChatHistory: builder.query<
             ChatMessage[],
             { myId: string; chatId: string }
         >({
-            query: ({chatId}) => `/chats/${chatId}/messages?limit=${HISTORY_PAGE}`,
+            async queryFn({chatId}, _api, _extra, baseQuery) {
+                const all: ChatMessage[] = [];
+                let since: string | undefined;
+                for (let page = 0; page < HISTORY_MAX_PAGES; page++) {
+                    const q = new URLSearchParams({limit: String(HISTORY_PAGE_SIZE)});
+                    if (since) q.set("since", since);
+                    const res = await baseQuery(`/chats/${chatId}/messages?${q.toString()}`);
+                    if (res.error) {
+                        // Tolerate a mid-loop failure: return what we have (first-page error surfaces).
+                        return all.length ? {data: dedupMessages(all)} : {error: res.error};
+                    }
+                    const rows = toMessages(res.data);
+                    all.push(...rows);
+                    if (rows.length < HISTORY_PAGE_SIZE) break;          // reached the last (short) page
+                    const cursor = rows[rows.length - 1]?.id;            // messageId == ULID cursor
+                    if (!cursor || cursor === since) break;              // no progress → stop
+                    since = cursor;
+                }
+                return {data: dedupMessages(all)};
+            },
             providesTags: (_r, _e, arg) => [
                 {type: "Chat", id: arg.chatId},
             ],
-            transformResponse: (raw: unknown): ChatMessage[] => {
-                if (!Array.isArray(raw)) return [];
-                const rows = raw
-                    .map(parseWireMessage)
-                    .filter((m): m is NonNullable<typeof m> => Boolean(m))
-                    .map(wireToChatMessage);
-                // Dedup by id (and by clientId when present) — guards against any duplicate the
-                // server might return; history rows normally carry no clientId (not persisted).
-                const seen = new Set<string>();
-                return rows.filter((m) => {
-                    const key = m.clientId || m.id;
-                    if (seen.has(key) || seen.has(m.id)) return false;
-                    seen.add(key);
-                    seen.add(m.id);
-                    return true;
-                });
+            // Offline/instant-open cache in IndexedDB: seed from the local cache immediately (so the
+            // chat opens without waiting for the network), then persist the fresh result and, on
+            // unsubscribe, the final in-memory state (incl. messages that arrived while open).
+            async onCacheEntryAdded(arg, {updateCachedData, cacheDataLoaded, cacheEntryRemoved, getCacheEntry}) {
+                try {
+                    const cached = await loadHistoryFromDB(arg.chatId);
+                    if (cached && cached.length) {
+                        updateCachedData((draft) => {
+                            // Seed only while the network hasn't populated the entry yet.
+                            if (!Array.isArray(draft) || draft.length === 0) return cached;
+                        });
+                    }
+                } catch { /* cache read is best-effort */ }
+                try {
+                    await cacheDataLoaded;
+                    const data = getCacheEntry().data;
+                    if (data) await saveHistoryToDB(arg.chatId, data);
+                } catch { /* subscription aborted before first load */ }
+                try {
+                    await cacheEntryRemoved;
+                    const data = getCacheEntry().data;
+                    if (data) await saveHistoryToDB(arg.chatId, data);
+                } catch { /* ignore */ }
             },
         }),
 

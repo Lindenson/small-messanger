@@ -71,6 +71,9 @@ interface ChatWindowProps {
     onSendAttachment?: (file: File) => void;
     onDownloadAttachment?: (attachmentId: string) => void;
     onResolveAttachment?: (attachmentId: string) => Promise<string | null>;
+    outboxStatusById?: Record<string, string>;
+    onRetryMessage?: (id: string) => void;
+    onDiscardMessage?: (id: string) => void;
 }
 
 function ChatWindow({
@@ -88,6 +91,9 @@ function ChatWindow({
                         onSendAttachment,
                         onDownloadAttachment,
                         onResolveAttachment,
+                        outboxStatusById,
+                        onRetryMessage,
+                        onDiscardMessage,
                     }: ChatWindowProps) {
     const {t} = useTranslation();
     const fileRef = useRef<HTMLInputElement>(null);
@@ -221,12 +227,31 @@ function ChatWindow({
                         ) : (
                             msg.text
                         )}
-                        {msg.fromMe && (
-                            <span className="ml-2 text-[10px] align-bottom opacity-70"
-                                  title={peerRead ? t("chat.read") : t("chat.sent")}>
-                                {peerRead ? "✓✓" : "✓"}
-                            </span>
-                        )}
+                        {msg.fromMe && (() => {
+                            const st = outboxStatusById?.[msg.id];
+                            if (st === "failed") {
+                                return (
+                                    <span className="ml-2 text-[10px] align-bottom">
+                                        <span title={t("chat.failed")} className="text-red-300">⚠</span>
+                                        <button onClick={() => onRetryMessage?.(msg.id)} title={t("chat.retry")}
+                                                className="ml-1 opacity-70 hover:opacity-100">↻</button>
+                                        <button onClick={() => onDiscardMessage?.(msg.id)} title={t("chat.discard")}
+                                                className="ml-1 opacity-70 hover:opacity-100">🗑</button>
+                                    </span>
+                                );
+                            }
+                            if (st === "pending" || st === "sending") {
+                                return (
+                                    <span className="ml-2 text-[10px] align-bottom opacity-70" title={t("chat.sending")}>🕐</span>
+                                );
+                            }
+                            return (
+                                <span className="ml-2 text-[10px] align-bottom opacity-70"
+                                      title={peerRead ? t("chat.read") : t("chat.sent")}>
+                                    {peerRead ? "✓✓" : "✓"}
+                                </span>
+                            );
+                        })()}
                         {onDeleteMessage && (
                             <button
                                 onClick={() => onDeleteMessage(msg.id)}

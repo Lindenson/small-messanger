@@ -87,6 +87,9 @@ export default function Messenger() {
                 onSendAttachment={chat.sendAttachment}
                 onDownloadAttachment={chat.downloadAttachment}
                 onResolveAttachment={chat.getAttachmentUrl}
+                outboxStatusById={chat.outboxStatusById}
+                onRetryMessage={chat.retryMessage}
+                onDiscardMessage={chat.discardMessage}
                 onDeleteChat={onOpenDeleteModal}
                 onCall={onCall}
             />

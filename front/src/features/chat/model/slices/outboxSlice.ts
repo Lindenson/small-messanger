@@ -56,6 +56,23 @@ const outboxSlice = createSlice({
             state.outboxVersion = bumpVersion();
         },
 
+        // User-driven "retry" of a failed message: reset it so the sender re-picks it up.
+        retryMessage(state, action: PayloadAction<string>) {
+            const msg = state.messages.find(m => m.id === action.payload);
+            if (msg) {
+                msg.status = "pending";
+                msg.attempts = 0;
+                msg.sentEpoch = undefined;
+            }
+            state.outboxVersion = bumpVersion();
+        },
+
+        // User-driven "discard" of a queued/failed message: drop it from the outbox entirely.
+        discardMessage(state, action: PayloadAction<string>) {
+            state.messages = state.messages.filter(m => m.id !== action.payload);
+            state.outboxVersion = bumpVersion();
+        },
+
         markPersisted(state) {
             logger.debug("storage persisted");
             state.persistedVersion = state.outboxVersion;
@@ -70,6 +87,8 @@ export const {
     markSent,
     markFailed,
     markPersisted,
+    retryMessage,
+    discardMessage,
 } = outboxSlice.actions;
 
 export default outboxSlice.reducer;
