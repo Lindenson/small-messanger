@@ -78,6 +78,7 @@ function ChatList({
                                 onClick={onLogout}
                                 className="text-sm text-red-400 opacity-100 hover:opacity-90"
                                 title={t("chat.logout")}
+                                aria-label={t("chat.logout")}
                             >
                                 {t("chat.logout")}
                             </button>
@@ -89,6 +90,7 @@ function ChatList({
                         <button
                             onClick={() => navigate("/add")}
                             title={t("chat.addContact")}
+                            aria-label={t("chat.addContact")}
                             className="w-10 h-10 flex items-center justify-center rounded-full
                             bg-teal-950 border-2 text-white
                             border-l-gray-300 border-t-gray-200 border-r-gray-400 border-b-gray-500

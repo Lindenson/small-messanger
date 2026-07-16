@@ -1,52 +1,61 @@
 import "./App.css";
 import {BrowserRouter, Route, Routes} from "react-router-dom";
-import Messenger from "@/pages/Messenger";
-import LoginPage from "@/features/auth/ui/LoginPage.tsx";
-import LogoutPage from "@/features/auth/ui/LogoutPage.tsx";
-import {RequireAuth} from "@/features/auth/ui/RequireAuth";
-import AddUser from "@/features/contacts/ui/AddUser.tsx";
-import {useWebSocketConnection} from "@/infrastructure/hooks/useWebSocketConnection.ts";
-import {Toaster} from "react-hot-toast";
-import RegistrationPage from "@/features/auth/ui/RegistrationPage.tsx";
-import {useEffect} from "react";
-import {markInitialized} from "@/features/auth/slices/userSlice.ts";
+import {lazy, Suspense, useEffect} from "react";
 import {useDispatch} from "react-redux";
+import {Toaster} from "react-hot-toast";
+
+import {RequireAuth} from "@/features/auth/ui/RequireAuth";
+import {useWebSocketConnection} from "@/infrastructure/hooks/useWebSocketConnection.ts";
+import {markInitialized} from "@/features/auth/slices/userSlice.ts";
+import {ErrorBoundary} from "@/shared/ui/ErrorBoundary.tsx";
+import {requestNotificationPermission} from "@/shared/sound/notify.ts";
+
+// Route-level code splitting: keep the initial bundle small (each screen loads on demand).
+const Messenger = lazy(() => import("@/pages/Messenger"));
+const AddUser = lazy(() => import("@/features/contacts/ui/AddUser.tsx"));
+const LoginPage = lazy(() => import("@/features/auth/ui/LoginPage.tsx"));
+const LogoutPage = lazy(() => import("@/features/auth/ui/LogoutPage.tsx"));
+const RegistrationPage = lazy(() => import("@/features/auth/ui/RegistrationPage.tsx"));
+
+function Fallback() {
+    return <div className="min-h-dvh flex items-center justify-center bg-gray-200 text-gray-500">…</div>;
+}
 
 function App() {
-
-
-    /* ======================
-    WebSocket connection
-    ====================== */
+    /* WebSocket connection */
     useWebSocketConnection();
 
     const dispatch = useDispatch();
     useEffect(() => {
         dispatch(markInitialized());
+        requestNotificationPermission();
     }, [dispatch]);
 
     return (
-        <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <Routes>
-                <Route path="/" element={
-                    <RequireAuth>
-                        <Messenger/>
-                    </RequireAuth>
-                }
-                />
-                <Route path="/add" element={
-                    <RequireAuth>
-                        <AddUser/>
-                    </RequireAuth>
-                }
-                />
-                <Route path="/login" element={<LoginPage/>}/>
-                <Route path="/logout" element={<LogoutPage/>}/>
-                <Route path="/register" element={<RegistrationPage/>}/>
-
-            </Routes>
-            <Toaster/>
-        </BrowserRouter>
+        <ErrorBoundary>
+            <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+                <Suspense fallback={<Fallback/>}>
+                    <Routes>
+                        <Route path="/" element={
+                            <RequireAuth>
+                                <Messenger/>
+                            </RequireAuth>
+                        }
+                        />
+                        <Route path="/add" element={
+                            <RequireAuth>
+                                <AddUser/>
+                            </RequireAuth>
+                        }
+                        />
+                        <Route path="/login" element={<LoginPage/>}/>
+                        <Route path="/logout" element={<LogoutPage/>}/>
+                        <Route path="/register" element={<RegistrationPage/>}/>
+                    </Routes>
+                </Suspense>
+                <Toaster/>
+            </BrowserRouter>
+        </ErrorBoundary>
     );
 }
 

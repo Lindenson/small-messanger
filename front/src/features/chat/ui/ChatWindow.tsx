@@ -147,6 +147,8 @@ function ChatWindow({
                     <button
                         onClick={() => dispatch(setSelectedChatId(null))}
                         className="sm:hidden text-xl"
+                        aria-label={t("chat.back")}
+                        title={t("chat.back")}
                     >
                         ←
                     </button>
@@ -166,6 +168,7 @@ function ChatWindow({
                     <button
                         onClick={onCall}
                         title={t("chat.call")}
+                        aria-label={t("chat.call")}
                         className="hover:opacity-80 text-xl"
                     >
                         📞
@@ -174,6 +177,7 @@ function ChatWindow({
                     <button
                         onClick={onToggleBlock}
                         title={blocked ? t("chat.unblock") : t("chat.block")}
+                        aria-label={blocked ? t("chat.unblock") : t("chat.block")}
                         className="hover:opacity-80 text-xl"
                     >
                         {blocked ? "🔓" : "🚫"}
@@ -182,6 +186,7 @@ function ChatWindow({
                     <button
                         onClick={onDeleteChat}
                         title={t("chat.deleteChat")}
+                        aria-label={t("chat.deleteChat")}
                         className="text-red-400 hover:text-red-500 text-xl"
                     >
                         ✕
@@ -234,8 +239,10 @@ function ChatWindow({
                                     <span className="ml-2 text-[10px] align-bottom">
                                         <span title={t("chat.failed")} className="text-red-300">⚠</span>
                                         <button onClick={() => onRetryMessage?.(msg.id)} title={t("chat.retry")}
+                                                aria-label={t("chat.retry")}
                                                 className="ml-1 opacity-70 hover:opacity-100">↻</button>
                                         <button onClick={() => onDiscardMessage?.(msg.id)} title={t("chat.discard")}
+                                                aria-label={t("chat.discard")}
                                                 className="ml-1 opacity-70 hover:opacity-100">🗑</button>
                                     </span>
                                 );
@@ -256,6 +263,7 @@ function ChatWindow({
                             <button
                                 onClick={() => onDeleteMessage(msg.id)}
                                 title={t("chat.deleteMessage")}
+                                aria-label={t("chat.deleteMessage")}
                                 className="ml-2 text-[10px] opacity-40 hover:opacity-100"
                             >
                                 🗑
@@ -281,6 +289,7 @@ function ChatWindow({
                 <button
                     onClick={() => fileRef.current?.click()}
                     title={t("chat.attach")}
+                    aria-label={t("chat.attach")}
                     className="text-2xl px-1 hover:opacity-80"
                 >
                     📎
@@ -294,6 +303,8 @@ function ChatWindow({
                 />
                 <button
                     onClick={() => sendMessage(inputText)}
+                    aria-label={t("chat.send")}
+                    title={t("chat.send")}
                     className="bg-teal-950 text-white px-5 py-3.5 rounded-full"
                 >
                     ↑

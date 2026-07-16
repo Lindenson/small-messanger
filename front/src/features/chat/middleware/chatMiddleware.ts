@@ -7,6 +7,8 @@ import {buildChatAck, buildReadIn, type WireMessage} from "@/features/chat/model
 import {markChatUnread, setPeerRead, setTyping} from "@/features/chat/model/slices/chatUiSlice.ts";
 import {markSent} from "@/features/chat/model/slices/outboxSlice.ts";
 import {logger} from "@/shared/logger/logger.ts";
+import {playNotificationSound, showDesktopNotification} from "@/shared/sound/notify.ts";
+import i18n from "@/shared/i18n";
 
 // How long a "peer is typing" indicator lingers before auto-clearing if no follow-up frame.
 const TYPING_TIMEOUT_MS = 4000;
@@ -70,6 +72,13 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
                 if (frame.senderId) dispatch({type: "ws/send", payload: buildReadIn(chatId, frame.senderId)});
             } else {
                 dispatch(markChatUnread(chatId));
+            }
+
+            // Best-effort notify when the message isn't for the chat the user is actively viewing.
+            const hidden = typeof document !== "undefined" && document.hidden;
+            if (chatId !== selectedChatId || hidden) {
+                playNotificationSound();
+                if (hidden) showDesktopNotification(i18n.t("chat.newMessage"), msg.text || "");
             }
             break;
         }
