@@ -42,7 +42,13 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
             dispatch(
                 chatApi.util.updateQueryData("getChatHistory", {myId, chatId}, (draft) => {
                     if (!draft) return;
-                    if (!draft.some((m) => m.id === msg.id)) draft.push(msg);
+                    // Client-side dedup: drop a duplicate live delivery by server id OR by the
+                    // sender's original client messageId (clientId ← correlationId). The latter
+                    // catches a lost-ACK resend, which the backend stores under a fresh server id.
+                    const dup = draft.some(
+                        (m) => m.id === msg.id || (!!msg.clientId && m.clientId === msg.clientId)
+                    );
+                    if (!dup) draft.push(msg);
                 })
             );
 

@@ -29,6 +29,7 @@ export function wireToChatMessage(m: WireMessage): ChatMessage {
     const ts = m.serverTimestamp ?? m.senderTimestamp ?? Date.now();
     return {
         id: m.messageId ?? String(m.id ?? nanoid()),
+        clientId: m.correlationId,   // sender's original client messageId (dedup key on live frames)
         chatId: m.conversationId ?? "",
         from: m.senderId ?? "",
         to: m.recipientId ?? "",

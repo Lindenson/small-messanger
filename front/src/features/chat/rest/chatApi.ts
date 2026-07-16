@@ -63,10 +63,20 @@ export const chatApi = createApi({
             ],
             transformResponse: (raw: unknown): ChatMessage[] => {
                 if (!Array.isArray(raw)) return [];
-                return raw
+                const rows = raw
                     .map(parseWireMessage)
                     .filter((m): m is NonNullable<typeof m> => Boolean(m))
                     .map(wireToChatMessage);
+                // Dedup by id (and by clientId when present) — guards against any duplicate the
+                // server might return; history rows normally carry no clientId (not persisted).
+                const seen = new Set<string>();
+                return rows.filter((m) => {
+                    const key = m.clientId || m.id;
+                    if (seen.has(key) || seen.has(m.id)) return false;
+                    seen.add(key);
+                    seen.add(m.id);
+                    return true;
+                });
             },
         }),
 

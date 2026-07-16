@@ -4,6 +4,10 @@ export const ChatMessageStatusSchema = z.enum(["pending", "sending", "sent", "fa
 
 export const ChatMessageSchema = z.object({
     id: z.string().min(1),
+    // Stable client-side dedup key = the sender's ORIGINAL client messageId, echoed by the backend
+    // as correlationId on the live CHAT_OUT. Lets the receiver collapse a duplicate live delivery
+    // (e.g. a lost-ACK resend) into one. Absent on history rows (backend doesn't persist it).
+    clientId: z.string().optional(),
     chatId: z.string().min(1),
     from: z.string().min(1),
     to: z.string().min(1),

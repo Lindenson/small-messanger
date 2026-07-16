@@ -82,6 +82,7 @@ export const chatMessagesService = {
                     if (!draft.some((m) => m.id === outboxMsg.id)) {
                         draft.push({
                             id: outboxMsg.id,
+                            clientId: outboxMsg.id,   // dedup key (matches correlationId on echoes)
                             chatId: conversationId,
                             from: myId,
                             to: recipientId,
