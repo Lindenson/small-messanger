@@ -132,7 +132,7 @@ export default function ChatWindow({
                         <span>{chat?.name}</span>
                         <span className="text-xs font-normal">
                             {peerTyping
-                                ? <span className="text-teal-300">печатает…</span>
+                                ? <span className="text-teal-300">escribiendo…</span>
                                 : chat?.online
                                     ? <span className="text-green-400">● en línea</span>
                                     : <span className="text-gray-400">● desconectado</span>}
