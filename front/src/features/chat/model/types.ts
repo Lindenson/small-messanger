@@ -24,6 +24,8 @@ export type OutboxMessage = {
     idempotencyKey: string;
     payload: OutboxMessagePayload;
     status: ChatMessageStatus;
+    attempts: number;         // how many send attempts so far (for the retry cap)
+    lastAttemptAt?: number;   // epoch ms of the last send attempt (for the ACK-timeout retry)
 };
 
 export type OutboxState = {

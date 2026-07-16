@@ -1,9 +1,11 @@
-import {useEffect, useRef} from "react";
+import {memo, useEffect, useRef} from "react";
 import {useSelector} from "react-redux";
 import {useNavigate} from "react-router-dom";
+import {useTranslation} from "react-i18next";
 
 import type {RootState} from "@/store/store";
 import type {Contact} from "@/features/contacts/model/schema/domainContract.schema.ts";
+import i18n, {setLanguage} from "@/shared/i18n";
 
 interface ChatListProps {
     chats: Contact[];
@@ -15,15 +17,17 @@ interface ChatListProps {
     onLogout: () => void;
 }
 
-export default function ChatList({
-                                     chats,
-                                     openChat,
-                                     unreadChats,
-                                     search,
-                                     setSearch,
-                                     myName,
-                                     onLogout,
-                                 }: ChatListProps) {
+function ChatList({
+                      chats,
+                      openChat,
+                      unreadChats,
+                      search,
+                      setSearch,
+                      myName,
+                      onLogout,
+                  }: ChatListProps) {
+    const {t} = useTranslation();
+    const lang = i18n.language?.startsWith("en") ? "en" : "es";
     const selectedChatId = useSelector(
         (state: RootState) => state.chatUi.selectedChatId
     );
@@ -52,20 +56,39 @@ export default function ChatList({
                     <div className="px-4 py-3 flex items-center justify-between text-white">
                         <div className="font-semibold text-lg truncate">{myName}</div>
 
-                        <button
-                            onClick={onLogout}
-                            className="text-sm text-red-400 opacity-100 hover:opacity-90"
-                            title="Logout"
-                        >
-                            Salir
-                        </button>
+                        <div className="flex items-center gap-3">
+                            {/* Language toggle (persisted) */}
+                            <div className="flex items-center text-xs" title={t("language.label")}>
+                                <button
+                                    onClick={() => setLanguage("es")}
+                                    className={`px-1 ${lang === "es" ? "text-white font-semibold" : "text-gray-400 hover:text-gray-200"}`}
+                                >
+                                    {t("language.es")}
+                                </button>
+                                <span className="text-gray-500">|</span>
+                                <button
+                                    onClick={() => setLanguage("en")}
+                                    className={`px-1 ${lang === "en" ? "text-white font-semibold" : "text-gray-400 hover:text-gray-200"}`}
+                                >
+                                    {t("language.en")}
+                                </button>
+                            </div>
+
+                            <button
+                                onClick={onLogout}
+                                className="text-sm text-red-400 opacity-100 hover:opacity-90"
+                                title={t("chat.logout")}
+                            >
+                                {t("chat.logout")}
+                            </button>
+                        </div>
                     </div>
 
                     {/* Search + Add button */}
                     <div className="px-4 pb-3 flex items-center gap-2">
                         <button
                             onClick={() => navigate("/add")}
-                            title="Añadir contacto"
+                            title={t("chat.addContact")}
                             className="w-10 h-10 flex items-center justify-center rounded-full
                             bg-teal-950 border-2 text-white
                             border-l-gray-300 border-t-gray-200 border-r-gray-400 border-b-gray-500
@@ -75,7 +98,7 @@ export default function ChatList({
                         </button>
                         <input
                             type="text"
-                            placeholder="Buscar contacto"
+                            placeholder={t("chat.searchContact")}
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             className="flex-1 rounded-full px-4 py-2 text-base bg-white border focus:outline-none"
@@ -103,7 +126,7 @@ export default function ChatList({
                                 <div className="flex items-center gap-2">
                                     <span
                                         className={`w-2 h-2 rounded-full shrink-0 ${chat.online ? "bg-green-500" : "bg-gray-300"}`}
-                                        title={chat.online ? "en línea" : "desconectado"}
+                                        title={chat.online ? t("chat.online") : t("chat.offline")}
                                     />
                                     {isUnread && (
                                         <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0"/>
@@ -133,3 +156,7 @@ export default function ChatList({
         </>
     );
 }
+
+// Memoized: presence ticks and typing in the chat window re-render <Messenger>, but with stable
+// props (memoized callbacks in useChat + Messenger) the sidebar list no longer re-renders with them.
+export default memo(ChatList);

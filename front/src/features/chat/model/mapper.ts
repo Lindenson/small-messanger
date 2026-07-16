@@ -48,6 +48,7 @@ export function toOutboxMessage(cmd: SendChatMessageCommand): OutboxMessage {
         id: messageId,
         idempotencyKey: messageId,
         status: "pending",
+        attempts: 0,
         payload: buildChatIn({
             conversationId: cmd.conversationId,
             recipientId: cmd.recipientId,

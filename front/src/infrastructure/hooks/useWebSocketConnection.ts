@@ -18,13 +18,24 @@ export function useWebSocketConnection() {
         // No clientId query — the backend derives the sender from the header identity.
         const url = `${protocol}://${window.location.host}${MESSENGER_WS_PATH}`;
 
-        dispatch({
-            type: "ws/connect",
-            payload: { url },
-            meta: { shouldReconnect: true },
-        });
+        const connect = () =>
+            dispatch({ type: "ws/connect", payload: { url }, meta: { shouldReconnect: true } });
+
+        connect();
+
+        // A backgrounded tab (esp. on mobile) gets its socket closed by the server (~35s idle) and
+        // the browser may suspend our reconnect timer. Reconnect immediately when the tab becomes
+        // visible again or the network comes back. ws/connect is idempotent (it no-ops if a socket
+        // is already OPEN/CONNECTING), so these are safe to fire liberally.
+        const onWake = () => {
+            if (document.visibilityState === "visible" && navigator.onLine) connect();
+        };
+        document.addEventListener("visibilitychange", onWake);
+        window.addEventListener("online", onWake);
 
         return () => {
+            document.removeEventListener("visibilitychange", onWake);
+            window.removeEventListener("online", onWake);
             dispatch({ type: "ws/disconnect" });
         };
     }, [myId, dispatch]);

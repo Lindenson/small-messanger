@@ -1,5 +1,6 @@
 import {type FormEvent,  useState} from "react";
 import {Link, useNavigate} from "react-router-dom";
+import {useTranslation} from "react-i18next";
 import type {LoginFlow, UiNode, UiNodeInputAttributes, UpdateLoginFlowBody} from "@ory/client";
 import {
     extractFieldErrors,
@@ -13,6 +14,7 @@ import useNoSessionFlow from "@/features/auth/hooks/useNoSessionFlow.ts";
 
 
 export default function LoginPage() {
+    const {t} = useTranslation();
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
     const [flow, setFlow] = useNoSessionFlow(initLoginFlow, navigate);
@@ -42,7 +44,7 @@ export default function LoginPage() {
         }
     }
 
-    if (!flow) return <div className="p-6">Loading…</div>;
+    if (!flow) return <div className="p-6">{t("common.loading")}</div>;
 
     function renderInput(
         node: UiNode,
@@ -96,7 +98,7 @@ export default function LoginPage() {
                 onSubmit={handleSubmit}
                 className="bg-white p-6 rounded-xl shadow w-96"
             >
-                <h1 className="text-xl font-semibold mb-4">Login</h1>
+                <h1 className="text-xl font-semibold mb-4">{t("auth.login")}</h1>
 
                 {flow.ui.messages?.map((m) => (
                     <p key={m.id} className="text-red-600 mb-2">
@@ -134,13 +136,13 @@ export default function LoginPage() {
                     disabled={loading}
                     className="w-full py-2 rounded text-white bg-teal-950 hover:bg-teal-900 disabled:bg-gray-400"
                 >
-                    {loading ? "Signing in…" : "Login"}
+                    {loading ? t("auth.signingIn") : t("auth.login")}
                 </button>
 
                 <p className="mt-4 text-center text-sm text-gray-600">
-                    Don't have an account?{' '}
+                    {t("auth.noAccount")}{' '}
                     <Link to="/register" className="text-teal-950 hover:underline">
-                        Register
+                        {t("auth.registerLink")}
                     </Link>
                 </p>
             </form>

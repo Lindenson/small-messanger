@@ -2,15 +2,83 @@
   "common": {
     "search": "Buscar",
     "cancel": "Cancelar",
-    "loading": "Cargando..."
+    "loading": "Cargando...",
+    "showMore": "Mostrar más"
+  },
+
+  "language": {
+    "label": "Idioma",
+    "es": "ES",
+    "en": "EN"
+  },
+
+  "auth": {
+    "login": "Iniciar sesión",
+    "register": "Registrarse",
+    "signingIn": "Iniciando sesión…",
+    "creatingAccount": "Creando cuenta…",
+    "password": "Contraseña",
+    "noAccount": "¿No tienes cuenta?",
+    "registerLink": "Regístrate",
+    "toLogin": "Para",
+    "loginLink": "iniciar sesión",
+    "logoutTitle": "Cerrar sesión",
+    "logoutConfirm": "¿Seguro que quieres salir?",
+    "logout": "Salir",
+    "loggingOut": "Saliendo…"
+  },
+
+  "chat": {
+    "logout": "Salir",
+    "addContact": "Añadir contacto",
+    "searchContact": "Buscar contacto",
+    "online": "en línea",
+    "offline": "desconectado",
+    "typing": "escribiendo…",
+    "block": "Bloquear",
+    "unblock": "Desbloquear",
+    "deleteChat": "Eliminar chat",
+    "deleteMessage": "Eliminar mensaje",
+    "attach": "Adjuntar archivo",
+    "messagePlaceholder": "Escribe un mensaje",
+    "call": "Videollamada",
+    "read": "Leído",
+    "sent": "Enviado",
+    "loadEarlier": "Ver mensajes anteriores",
+    "deleteChatTitle": "Eliminar chat",
+    "deleteChatConfirm": "¿Eliminar historial con {{name}}?",
+    "delete": "Eliminar",
+    "blocked": "Bloqueado",
+    "unblocked": "Desbloqueado",
+    "blockError": "No se pudo cambiar el bloqueo",
+    "msgFrozen": "Mensaje congelado, no se puede borrar",
+    "msgDeleteError": "No se pudo borrar el mensaje",
+    "fileSent": "Archivo enviado",
+    "fileError": "No se pudo enviar el archivo",
+    "downloadError": "No se pudo descargar"
   },
 
   "addUser": {
-    "title": "Añadir usuario",
-    "placeholder": "Email o ID",
-    "confirm": "Añadir",
-    "notFound": "Usuario no encontrado",
-    "error": "Error al buscar usuario",
-    "added": "Usuario añadido"
+    "title": "Nuevo chat",
+    "searchPlaceholder": "Buscar con quién chatear (nombre, email, id)",
+    "minChars": "Escribe al menos {{n}} caracteres…",
+    "searchError": "No se pudo buscar (IDS)",
+    "noResults": "Sin resultados",
+    "searching": "Buscando…",
+    "showMore": "Mostrar más",
+    "cancel": "Cancelar",
+    "chatOpened": "Chat abierto",
+    "createForbidden": "Se requiere X-Admin-Key válido para crear chats",
+    "createInvalid": "Datos inválidos",
+    "createError": "No se pudo crear el chat",
+    "verified": "verificado"
+  },
+
+  "call": {
+    "incoming": "Llamada entrante",
+    "callingYou": "Te está llamando {{name}}",
+    "accept": "Aceptar",
+    "reject": "Rechazar",
+    "hangUp": "Finalizar llamada"
   }
 }

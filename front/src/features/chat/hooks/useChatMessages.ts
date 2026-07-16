@@ -61,10 +61,15 @@ export function useChatMessages() {
 
     /* ======================
        View mapping (memoized: a fresh array every render made ChatWindow's
-       scroll effect fire on every render and forced a full list reconcile)
+       scroll effect fire on every render and forced a full list reconcile).
+       Sorted by createdAt so display order is chronological even if a WS frame
+       arrives out of order or history isn't pre-sorted by the backend.
     ====================== */
     const messages = useMemo(
-        () => data.map((msg) => toChatMessageView(msg, myId)),
+        () =>
+            [...data]
+                .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+                .map((msg) => toChatMessageView(msg, myId)),
         [data, myId]
     );
 

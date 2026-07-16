@@ -1,8 +1,10 @@
-import {useEffect, useRef, useState} from "react";
+import {memo, useEffect, useMemo, useRef, useState} from "react";
 import {useDispatch, useSelector} from "react-redux";
+import {useTranslation} from "react-i18next";
 import type {RootState} from "@/store/store";
 import type {Contact} from "@/features/contacts/model/schema/domainContract.schema.ts";
 import {setSelectedChatId} from "@/features/chat/model/slices/chatUiSlice.ts";
+import {MESSAGE_WINDOW_INITIAL, MESSAGE_WINDOW_STEP} from "@/shared/config/chat.ts";
 
 /** Inline thumbnail for image attachments. Presigned GET URLs expire, so it resolves
  *  a fresh URL on mount (per attachmentId). Click opens the full image in a new tab. */
@@ -71,22 +73,23 @@ interface ChatWindowProps {
     onResolveAttachment?: (attachmentId: string) => Promise<string | null>;
 }
 
-export default function ChatWindow({
-                                       chat,
-                                       messages,
-                                       inputText,
-                                       setInputText,
-                                       sendMessage,
-                                       onDeleteChat,
-                                       onCall,
-                                       onTyping,
-                                       onToggleBlock,
-                                       blocked,
-                                       onDeleteMessage,
-                                       onSendAttachment,
-                                       onDownloadAttachment,
-                                       onResolveAttachment,
-                                   }: ChatWindowProps) {
+function ChatWindow({
+                        chat,
+                        messages,
+                        inputText,
+                        setInputText,
+                        sendMessage,
+                        onDeleteChat,
+                        onCall,
+                        onTyping,
+                        onToggleBlock,
+                        blocked,
+                        onDeleteMessage,
+                        onSendAttachment,
+                        onDownloadAttachment,
+                        onResolveAttachment,
+                    }: ChatWindowProps) {
+    const {t} = useTranslation();
     const fileRef = useRef<HTMLInputElement>(null);
     const dispatch = useDispatch();
 
@@ -101,6 +104,19 @@ export default function ChatWindow({
     );
 
     const bottomRef = useRef<HTMLDivElement | null>(null);
+
+    // Windowed rendering: keep only the most recent messages in the DOM so a long history doesn't
+    // reconcile hundreds of bubbles. "Show earlier" reveals another step. Reset to the tail when
+    // switching chats.
+    const [visibleCount, setVisibleCount] = useState(MESSAGE_WINDOW_INITIAL);
+    useEffect(() => {
+        setVisibleCount(MESSAGE_WINDOW_INITIAL);
+    }, [selectedChatId]);
+    const shown = useMemo(
+        () => (messages.length > visibleCount ? messages.slice(messages.length - visibleCount) : messages),
+        [messages, visibleCount]
+    );
+    const hasEarlier = messages.length > visibleCount;
 
     // Scroll to the newest message only when the message set actually changes (count or last id),
     // not on every parent re-render (presence/typing/ws-status ticks would otherwise re-trigger a
@@ -132,10 +148,10 @@ export default function ChatWindow({
                         <span>{chat?.name}</span>
                         <span className="text-xs font-normal">
                             {peerTyping
-                                ? <span className="text-teal-300">escribiendo…</span>
+                                ? <span className="text-teal-300">{t("chat.typing")}</span>
                                 : chat?.online
-                                    ? <span className="text-green-400">● en línea</span>
-                                    : <span className="text-gray-400">● desconectado</span>}
+                                    ? <span className="text-green-400">● {t("chat.online")}</span>
+                                    : <span className="text-gray-400">● {t("chat.offline")}</span>}
                         </span>
                     </span>
                 </div>
@@ -143,7 +159,7 @@ export default function ChatWindow({
                 <div className="flex items-center gap-4">
                     <button
                         onClick={onCall}
-                        title="Videollamada"
+                        title={t("chat.call")}
                         className="hover:opacity-80 text-xl"
                     >
                         📞
@@ -151,7 +167,7 @@ export default function ChatWindow({
 
                     <button
                         onClick={onToggleBlock}
-                        title={blocked ? "Desbloquear" : "Bloquear"}
+                        title={blocked ? t("chat.unblock") : t("chat.block")}
                         className="hover:opacity-80 text-xl"
                     >
                         {blocked ? "🔓" : "🚫"}
@@ -159,7 +175,7 @@ export default function ChatWindow({
 
                     <button
                         onClick={onDeleteChat}
-                        title="Eliminar chat"
+                        title={t("chat.deleteChat")}
                         className="text-red-400 hover:text-red-500 text-xl"
                     >
                         ✕
@@ -169,7 +185,15 @@ export default function ChatWindow({
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-3 bg-gray-300">
-                {messages?.map((msg) => (
+                {hasEarlier && (
+                    <button
+                        onClick={() => setVisibleCount((c) => c + MESSAGE_WINDOW_STEP)}
+                        className="mx-auto block text-sm text-teal-800 hover:underline py-1"
+                    >
+                        {t("chat.loadEarlier")}
+                    </button>
+                )}
+                {shown.map((msg) => (
                     <div
                         key={msg.id}
                         className={`max-w-xs px-4 py-2 rounded-lg text-sm ${
@@ -199,14 +223,14 @@ export default function ChatWindow({
                         )}
                         {msg.fromMe && (
                             <span className="ml-2 text-[10px] align-bottom opacity-70"
-                                  title={peerRead ? "Leído" : "Enviado"}>
+                                  title={peerRead ? t("chat.read") : t("chat.sent")}>
                                 {peerRead ? "✓✓" : "✓"}
                             </span>
                         )}
                         {onDeleteMessage && (
                             <button
                                 onClick={() => onDeleteMessage(msg.id)}
-                                title="Eliminar mensaje"
+                                title={t("chat.deleteMessage")}
                                 className="ml-2 text-[10px] opacity-40 hover:opacity-100"
                             >
                                 🗑
@@ -231,14 +255,14 @@ export default function ChatWindow({
                 />
                 <button
                     onClick={() => fileRef.current?.click()}
-                    title="Adjuntar archivo"
+                    title={t("chat.attach")}
                     className="text-2xl px-1 hover:opacity-80"
                 >
                     📎
                 </button>
                 <input
                     type="text"
-                    placeholder="Escribe un mensaje"
+                    placeholder={t("chat.messagePlaceholder")}
                     value={inputText}
                     onChange={(e) => { setInputText(e.target.value); onTyping?.(); }}
                     className="flex-1 border rounded-full text-base px-4 py-2 focus:outline-none"
@@ -253,3 +277,7 @@ export default function ChatWindow({
         </main>
     );
 }
+
+// Memoized so typing in the input / presence ticks (which re-render <Messenger>) don't re-render
+// the whole window unless its own props change. Relies on Messenger passing memoized callbacks.
+export default memo(ChatWindow);

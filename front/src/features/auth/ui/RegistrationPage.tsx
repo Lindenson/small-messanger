@@ -1,5 +1,6 @@
 import {type FormEvent, useState} from "react";
 import {Link, useNavigate} from "react-router-dom";
+import {useTranslation} from "react-i18next";
 import type {RegistrationFlow, UiNode, UiNodeInputAttributes, UpdateRegistrationFlowBody,} from "@ory/client";
 import {
     extractFieldErrors,
@@ -12,6 +13,7 @@ import {
 import useNoSessionFlow from "@/features/auth/hooks/useNoSessionFlow.ts";
 
 export default function RegistrationPage() {
+    const {t} = useTranslation();
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
     const [flow, setFlow] = useNoSessionFlow(initRegistrationFlow, navigate);
@@ -67,7 +69,7 @@ export default function RegistrationPage() {
         const attr = node.attributes;
         const errors = extractFieldErrors(flow, attr.name);
         const isPassword = props.type === "password";
-        const labelText = isPassword ? "Password" : node.meta?.label?.text;
+        const labelText = isPassword ? t("auth.password") : node.meta?.label?.text;
 
 
         return (
@@ -96,7 +98,7 @@ export default function RegistrationPage() {
         );
     }
 
-    if (!flow) return <div className="p-6">Loading…</div>;
+    if (!flow) return <div className="p-6">{t("common.loading")}</div>;
 
     const hiddenNodes = findHiddenNodes(flow);
     const emailNode = findInputNode(flow, "traits.email");
@@ -108,7 +110,7 @@ export default function RegistrationPage() {
     return (
         <div className="min-h-dvh flex items-center justify-center bg-gray-200">
             <form onSubmit={handleSubmit} className="bg-white p-6 rounded-xl shadow w-96">
-                <h1 className="text-xl font-semibold mb-4">Register</h1>
+                <h1 className="text-xl font-semibold mb-4">{t("auth.register")}</h1>
 
                 {flow.ui.messages?.map((m) => (
                     <p key={m.id} className="text-red-600 text-sm">
@@ -139,12 +141,12 @@ export default function RegistrationPage() {
                     disabled={loading}
                     className="w-full py-2 rounded text-white bg-teal-950 hover:bg-teal-900 disabled:bg-gray-400"
                 >
-                    {loading ? "Creating account…" : "Register"}
+                    {loading ? t("auth.creatingAccount") : t("auth.register")}
                 </button>
                 <p className="mt-4 text-center text-sm text-gray-600">
-                    To {' '}
+                    {t("auth.toLogin")} {' '}
                     <Link to="/login" className="text-teal-950 hover:underline">
-                        login
+                        {t("auth.loginLink")}
                     </Link>
                 </p>
             </form>

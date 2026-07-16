@@ -21,18 +21,24 @@ const outboxSlice = createSlice({
             return action.payload;
         },
 
-        enqueueMessage(state, action: PayloadAction<Omit<OutboxMessage, "status">>) {
+        enqueueMessage(state, action: PayloadAction<Omit<OutboxMessage, "status" | "attempts">>) {
             logger.debug("message added ", action.payload);
             state.messages.push({
                 ...action.payload,
                 status: "pending",
+                attempts: 0,
             });
             state.outboxVersion = bumpVersion();
         },
 
-        markSending(state, action: PayloadAction<string>) {
-            const msg = state.messages.find(m => m.id === action.payload);
-            if (msg) msg.status = "sending";
+        // Mark a message in-flight and record the attempt (drives the ACK-timeout retry + cap).
+        markSending(state, action: PayloadAction<{ id: string; at: number }>) {
+            const msg = state.messages.find(m => m.id === action.payload.id);
+            if (msg) {
+                msg.status = "sending";
+                msg.attempts += 1;
+                msg.lastAttemptAt = action.payload.at;
+            }
         },
 
         markSent(state, action: PayloadAction<string>) {
@@ -45,6 +51,7 @@ const outboxSlice = createSlice({
             logger.debug("sent failed", action.payload);
             const msg = state.messages.find(m => m.id === action.payload);
             if (msg) msg.status = "failed";
+            state.outboxVersion = bumpVersion();
         },
 
         markPersisted(state) {

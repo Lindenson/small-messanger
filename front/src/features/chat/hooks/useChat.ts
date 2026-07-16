@@ -12,12 +12,14 @@ import type {Contact} from "@/features/contacts/model/schema/domainContract.sche
 import {chatMessagesService} from "@/features/chat/model/services/chatMessages.service.ts";
 import {useBlockChatMutation, useUnblockChatMutation, useDeleteMessageMutation, useAttachmentUploadUrlMutation, useAttachmentConfirmMutation, useAttachmentDownloadUrlMutation} from "@/features/chat/rest/chatApi.ts";
 import toast from "react-hot-toast";
+import {useTranslation} from "react-i18next";
 import {buildReadIn, buildTypingIn} from "@/features/chat/model/schema/wireMessage.schema.ts";
 import {flushOutbox} from "@/features/chat/thunk/sendOutboxThunk.ts";
 
 
 export function useChat() {
     const dispatch = useDispatch<AppDispatch>();
+    const {t} = useTranslation();
 
     /* ======================
        UI state (local)
@@ -44,6 +46,10 @@ export function useChat() {
     const [confirmMut] = useAttachmentConfirmMutation();
     const [downloadUrlMut] = useAttachmentDownloadUrlMutation();
 
+    // Declared before the handlers that reference them (reloadChatHistory/clearChat/markRead).
+    const {unreadChats, markRead} = useUnreadChats();
+    const {messages, reloadChatHistory, clearChat} = useChatMessages();
+
     const filteredChats = useMemo(
         () =>
             contacts.filter((c) =>
@@ -68,25 +74,25 @@ export function useChat() {
         [selectedChatId, getSummary]
     );
 
-    async function toggleBlock() {
+    const toggleBlock = useCallback(async () => {
         if (!selectedChatId) return;
         try {
-            if (selectedBlocked) { await unblockChat({chatId: selectedChatId}).unwrap(); toast.success("Desbloqueado"); }
-            else { await blockChat({chatId: selectedChatId}).unwrap(); toast.success("Bloqueado"); }
-        } catch { toast.error("No se pudo cambiar el bloqueo"); }
-    }
+            if (selectedBlocked) { await unblockChat({chatId: selectedChatId}).unwrap(); toast.success(t("chat.unblocked")); }
+            else { await blockChat({chatId: selectedChatId}).unwrap(); toast.success(t("chat.blocked")); }
+        } catch { toast.error(t("chat.blockError")); }
+    }, [selectedChatId, selectedBlocked, unblockChat, blockChat, t]);
 
-    async function deleteMessage(messageId: string) {
+    const deleteMessage = useCallback(async (messageId: string) => {
         if (!selectedChatId) return;
         try {
             await deleteMessageMut({chatId: selectedChatId, messageId}).unwrap();
         } catch (e) {
             const st = (e as { status?: number })?.status;
-            toast.error(st === 409 ? "Mensaje congelado, no se puede borrar" : "No se pudo borrar el mensaje");
+            toast.error(st === 409 ? t("chat.msgFrozen") : t("chat.msgDeleteError"));
         }
-    }
+    }, [selectedChatId, deleteMessageMut, t]);
 
-    async function sendAttachment(file: File) {
+    const sendAttachment = useCallback(async (file: File) => {
         if (!selectedChatId || !file) return;
         const contentType = file.type || "application/octet-stream";
         try {
@@ -99,23 +105,23 @@ export function useChat() {
             if (!put.ok) throw new Error("upload PUT " + put.status);
             await confirmMut({chatId: selectedChatId, attachmentId: up.attachmentId}).unwrap();
             reloadChatHistory().catch(() => {});
-            toast.success("Archivo enviado");
+            toast.success(t("chat.fileSent"));
         } catch (e) {
             logger.error("sendAttachment failed", e as Error);
-            toast.error("No se pudo enviar el archivo");
+            toast.error(t("chat.fileError"));
         }
-    }
+    }, [selectedChatId, uploadUrlMut, confirmMut, reloadChatHistory, t]);
 
-    async function downloadAttachment(attachmentId: string) {
+    const downloadAttachment = useCallback(async (attachmentId: string) => {
         if (!selectedChatId || !attachmentId) return;
         try {
             const r = await downloadUrlMut({chatId: selectedChatId, attachmentId}).unwrap();
             window.open(r.downloadUrl, "_blank", "noopener");
         } catch (e) {
             logger.error("downloadAttachment failed", e as Error);
-            toast.error("No se pudo descargar");
+            toast.error(t("chat.downloadError"));
         }
-    }
+    }, [selectedChatId, downloadUrlMut, t]);
 
     // Resolve a fresh presigned GET URL (for inline image previews). Presigned URLs
     // expire (download-ttl-seconds), so the caller fetches on render rather than caching.
@@ -129,12 +135,6 @@ export function useChat() {
             return null;
         }
     }, [selectedChatId, downloadUrlMut]);
-
-    /* ======================
-       Messages / unread
-    ====================== */
-    const {unreadChats, markRead} = useUnreadChats();
-    const {messages, reloadChatHistory, clearChat} = useChatMessages();
 
     // Incoming CHAT_OUT / CHAT_ACK / READ_OUT / TYPING_OUT are handled per-frame in chatMiddleware
     // (not a lastIncoming effect), so bursts of frames are never dropped.
@@ -155,17 +155,17 @@ export function useChat() {
     }, [wsStatus, selectedChatId, reloadChatHistory, dispatch]);
 
     /* ======================
-       Actions
+       Actions (memoized so <ChatWindow>/<ChatList> can be React.memo'd)
     ====================== */
-    async function openChat(chatId: string) {
+    const openChat = useCallback(async (chatId: string) => {
         dispatch(setSelectedChatId(chatId));
         markRead(chatId);
         // Mark the conversation read on open (peer receives READ_OUT).
         const s = getSummary(chatId);
         if (s) dispatch({type: "ws/send", payload: buildReadIn(chatId, s.counterpartId)});
-    }
+    }, [dispatch, markRead, getSummary]);
 
-    function sendMessage(text: string) {
+    const sendMessage = useCallback((text: string) => {
         if (!selectedChatId || !text.trim()) return;
         const summary = getSummary(selectedChatId);
         if (!summary) return;
@@ -175,12 +175,12 @@ export function useChat() {
         );
         // New outgoing message — peer hasn't read it yet (✓, not ✓✓) until a READ_OUT.
         dispatch(setPeerRead({chatId: selectedChatId, read: false}));
-    }
+    }, [selectedChatId, getSummary, myId, dispatch]);
 
-    async function deleteChat() {
+    const deleteChat = useCallback(async () => {
         await clearChat();
         dispatch(setSelectedChatId(null));
-    }
+    }, [clearChat, dispatch]);
 
     // Throttled "I'm typing" notifier (TYPING_IN → peer's TYPING_OUT). Called on input change.
     const lastTypingRef = useRef(0);

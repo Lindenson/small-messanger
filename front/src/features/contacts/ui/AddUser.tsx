@@ -9,6 +9,7 @@ import {idsDisplayName, useGetIdsUserQuery, useLazySearchIdsUsersQuery, type Ids
 import {isNotLogged} from "@/shared/utils/checks.ts";
 import {logger} from "@/shared/logger/logger.ts";
 import toast from "react-hot-toast";
+import {useTranslation} from "react-i18next";
 
 function initials(name: string): string {
     const p = name.trim().split(/\s+/).filter(Boolean);
@@ -26,6 +27,7 @@ const roleColor: Record<string, string> = {
 // X-Admin-Key, sent by the API layer.) You must be logged in as a client/master to be a
 // participant and see the chat — an admin identity is not a participant.
 export default function AddContactPage() {
+    const {t} = useTranslation();
     const myId = useSelector((s: RootState) => s.user.id);
     const dispatch = useDispatch<AppDispatch>();
     const [createChat, {isLoading: creating}] = useCreateChatMutation();
@@ -107,15 +109,15 @@ export default function AddContactPage() {
                 })
             );
             dispatch(setSelectedChatId(conv.id));
-            toast.success("Chat abierto");
+            toast.success(t("addUser.chatOpened"));
             navigate("/");
         } catch (err) {
             const status = (err as {status?: number})?.status;
             logger.error("createChat failed", err as Error);
             toast.error(
-                status === 403 ? "Se requiere X-Admin-Key válido para crear chats"
-                    : status === 400 ? "Datos inválidos"
-                        : "No se pudo crear el chat"
+                status === 403 ? t("addUser.createForbidden")
+                    : status === 400 ? t("addUser.createInvalid")
+                        : t("addUser.createError")
             );
         }
     }
@@ -123,12 +125,12 @@ export default function AddContactPage() {
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-200/80 backdrop-blur-sm p-4">
             <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-6 flex flex-col gap-4">
-                <h2 className="text-xl font-semibold text-center">Nuevo chat</h2>
+                <h2 className="text-xl font-semibold text-center">{t("addUser.title")}</h2>
 
                 <input
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Buscar con quién chatear (nombre, email, id)"
+                    placeholder={t("addUser.searchPlaceholder")}
                     className="w-full border border-gray-300 rounded-lg px-4 py-2
                     focus:outline-none focus:ring-2 focus:ring-teal-600"
                     autoFocus
@@ -136,13 +138,13 @@ export default function AddContactPage() {
 
                 <div className="max-h-80 overflow-y-auto flex flex-col gap-1.5">
                     {debounced.length < MIN_CHARS && (
-                        <p className="text-sm text-gray-500 text-center py-4">Escribe al menos {MIN_CHARS} caracteres…</p>
+                        <p className="text-sm text-gray-500 text-center py-4">{t("addUser.minChars", {n: MIN_CHARS})}</p>
                     )}
                     {debounced.length >= MIN_CHARS && isError && (
-                        <p className="text-sm text-red-600 text-center py-4">No se pudo buscar (IDS)</p>
+                        <p className="text-sm text-red-600 text-center py-4">{t("addUser.searchError")}</p>
                     )}
                     {debounced.length >= MIN_CHARS && !isError && !isFetching && items.length === 0 && (
-                        <p className="text-sm text-gray-500 text-center py-4">Sin resultados</p>
+                        <p className="text-sm text-gray-500 text-center py-4">{t("addUser.noResults")}</p>
                     )}
                     {items.map((u) => {
                         const name = idsDisplayName(u);
@@ -159,7 +161,7 @@ export default function AddContactPage() {
                                 <span className="flex flex-col min-w-0 flex-1">
                                     <span className="font-medium truncate">
                                         {name}
-                                        {u.verified && <span className="ml-1 text-teal-600" title="verificado">✓</span>}
+                                        {u.verified && <span className="ml-1 text-teal-600" title={t("addUser.verified")}>✓</span>}
                                     </span>
                                     {u.email && <span className="text-xs text-gray-500 truncate">{u.email}</span>}
                                 </span>
@@ -170,14 +172,14 @@ export default function AddContactPage() {
                             </button>
                         );
                     })}
-                    {isFetching && <p className="text-sm text-gray-500 text-center py-2">Buscando…</p>}
+                    {isFetching && <p className="text-sm text-gray-500 text-center py-2">{t("addUser.searching")}</p>}
                     {nextToken && !isFetching && (
                         <button
                             type="button"
                             onClick={loadMore}
                             className="text-sm text-teal-800 hover:underline py-2"
                         >
-                            Mostrar más
+                            {t("addUser.showMore")}
                         </button>
                     )}
                 </div>
@@ -186,7 +188,7 @@ export default function AddContactPage() {
                     onClick={() => navigate(-1)}
                     className="w-full border border-gray-300 py-2 rounded-lg hover:bg-gray-100 transition"
                 >
-                    Cancelar
+                    {t("addUser.cancel")}
                 </button>
             </div>
         </div>
