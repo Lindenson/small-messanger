@@ -81,8 +81,13 @@ export const chatApi = createApi({
                 url: `/chats/${chatId}`,
                 method: "DELETE",
             }),
+            // Invalidate BOTH the history (Chat/id) AND the chat list (Chats): the backend excludes
+            // soft-deleted conversations from GET /chats, so refetching the list drops the deleted
+            // chat from the UI. Without the "Chats" tag the list query never refetches and the
+            // deleted chat lingers in the sidebar.
             invalidatesTags: (_r, _e, arg) => [
                 {type: "Chat", id: arg.chatId},
+                "Chats",
             ],
         }),
 

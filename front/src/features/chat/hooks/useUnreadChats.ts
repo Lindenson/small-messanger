@@ -1,35 +1,25 @@
-import { useState } from "react";
+import {useCallback, useMemo} from "react";
+import {useDispatch, useSelector} from "react-redux";
+import type {RootState} from "@/store/store";
+import {markChatRead, markChatUnread} from "@/features/chat/model/slices/chatUiSlice.ts";
 
-
+/**
+ * Unread state now lives in the chatUi slice (keyed by conversationId), set from chatMiddleware
+ * when a CHAT_OUT arrives for a chat the user isn't viewing. This hook exposes it as a Set for the
+ * chat list and the read/unread dispatchers. Unlike the old component-local useState, it survives
+ * re-renders and navigation.
+ */
 export function useUnreadChats() {
-  const [unreadChats, setUnreadChats] = useState<Set<string>>(new Set());
+    const dispatch = useDispatch();
+    const unreadByChat = useSelector((s: RootState) => s.chatUi.unreadByChat);
 
-  function markUnread(chatId: string) {
-    setUnreadChats((prev) => {
-      if (prev.has(chatId)) return prev;
-      const next = new Set(prev);
-      next.add(chatId);
-      return next;
-    });
-  }
+    const unreadChats = useMemo(
+        () => new Set(Object.keys(unreadByChat).filter((id) => unreadByChat[id])),
+        [unreadByChat]
+    );
 
-  function markRead(chatId: string) {
-    setUnreadChats((prev) => {
-      if (!prev.has(chatId)) return prev;
-      const next = new Set(prev);
-      next.delete(chatId);
-      return next;
-    });
-  }
+    const markUnread = useCallback((chatId: string) => dispatch(markChatUnread(chatId)), [dispatch]);
+    const markRead = useCallback((chatId: string) => dispatch(markChatRead(chatId)), [dispatch]);
 
-  function clearAll() {
-    setUnreadChats(new Set());
-  }
-
-  return {
-    unreadChats,
-    markUnread,
-    markRead,
-    clearAll,
-  };
+    return {unreadChats, markUnread, markRead};
 }

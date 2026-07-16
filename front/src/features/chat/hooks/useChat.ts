@@ -1,7 +1,6 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from "react";
+import {useCallback, useMemo, useRef, useState, useEffect} from "react";
 import {useDispatch, useSelector} from "react-redux";
-import {clearIncoming} from "@/infrastructure/slices/websocketSlice";
-import {setSelectedChatId, setPeerRead, setTyping} from "@/features/chat/model/slices/chatUiSlice";
+import {setSelectedChatId, setPeerRead} from "@/features/chat/model/slices/chatUiSlice";
 import type {AppDispatch, RootState} from "@/store/store";
 
 import {useChatMessages} from "./useChatMessages";
@@ -13,9 +12,7 @@ import type {Contact} from "@/features/contacts/model/schema/domainContract.sche
 import {chatMessagesService} from "@/features/chat/model/services/chatMessages.service.ts";
 import {useBlockChatMutation, useUnblockChatMutation, useDeleteMessageMutation, useAttachmentUploadUrlMutation, useAttachmentConfirmMutation, useAttachmentDownloadUrlMutation} from "@/features/chat/rest/chatApi.ts";
 import toast from "react-hot-toast";
-import {wireToChatMessage} from "@/features/chat/model/mapper.ts";
-import {buildChatAck, buildReadIn, buildTypingIn, type WireMessage} from "@/features/chat/model/schema/wireMessage.schema.ts";
-import {markSent} from "@/features/chat/model/slices/outboxSlice.ts";
+import {buildReadIn, buildTypingIn} from "@/features/chat/model/schema/wireMessage.schema.ts";
 import {flushOutbox} from "@/features/chat/thunk/sendOutboxThunk.ts";
 
 
@@ -136,50 +133,11 @@ export function useChat() {
     /* ======================
        Messages / unread
     ====================== */
-    const {unreadChats, markUnread, markRead} = useUnreadChats();
-    const {messages, reloadChatHistory, handleIncomingMessage, clearChat} =
-        useChatMessages();
+    const {unreadChats, markRead} = useUnreadChats();
+    const {messages, reloadChatHistory, clearChat} = useChatMessages();
 
-    /* ======================
-       WebSocket incoming
-    ====================== */
-    const lastIncoming = useSelector(
-        (state: RootState) => state.ws.lastIncoming
-    );
-
-    useEffect(() => {
-        if (!lastIncoming) return;
-        const frame = lastIncoming as WireMessage;
-
-        if (frame.type === "CHAT_OUT") {
-            const msg = wireToChatMessage(frame);
-            handleIncomingMessage(msg);
-            // ACK delivery (SENT → DELIVERED; advances the server GC watermark)
-            dispatch({type: "ws/send", payload: buildChatAck(frame)});
-            dispatch(setTyping({chatId: msg.chatId, typing: false})); // message arrived → stop "typing"
-            if (msg.chatId === selectedChatId) {
-                // I'm viewing this chat → mark READ immediately (peer gets READ_OUT)
-                if (frame.senderId) dispatch({type: "ws/send", payload: buildReadIn(msg.chatId, frame.senderId)});
-            } else {
-                markUnread(msg.chatId);
-            }
-        } else if (frame.type === "CHAT_ACK" && frame.correlationId) {
-            // our queued message was accepted by the server → drop it from the outbox, then
-            // reconcile: refetch history so the optimistic row (client id) becomes the server row
-            // (real ULID → correct ordering + makes delete-own-message work).
-            dispatch(markSent(frame.correlationId));
-            reloadChatHistory().catch(() => {});
-        } else if (frame.type === "READ_OUT" && frame.conversationId) {
-            // the peer read my messages in this conversation → show ✓✓
-            dispatch(setPeerRead({chatId: frame.conversationId, read: true}));
-        } else if (frame.type === "TYPING_OUT" && frame.conversationId) {
-            const cid = frame.conversationId;
-            dispatch(setTyping({chatId: cid, typing: true}));
-            setTimeout(() => dispatch(setTyping({chatId: cid, typing: false})), 4000);
-        }
-
-        dispatch(clearIncoming());
-    }, [lastIncoming, selectedChatId, handleIncomingMessage, markUnread, reloadChatHistory, dispatch]);
+    // Incoming CHAT_OUT / CHAT_ACK / READ_OUT / TYPING_OUT are handled per-frame in chatMiddleware
+    // (not a lastIncoming effect), so bursts of frames are never dropped.
 
     /* ======================
        Reconnect handling

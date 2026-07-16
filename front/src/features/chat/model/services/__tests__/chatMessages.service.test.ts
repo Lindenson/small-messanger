@@ -43,26 +43,20 @@ describe("chatMessagesService", () => {
         vi.clearAllMocks();
     });
 
-    it("calls updateQueryData with correct params", () => {
-        const msg = {id: "1", from: "user2", to: myId} as ChatMessage;
+    it("incomingMessage patches getChatHistory by chatId (idempotent)", () => {
+        const msg = {id: "1", chatId: "chat9", from: "user2", to: myId} as ChatMessage;
 
         chatMessagesService.incomingMessage(dispatch, myId, msg);
 
-        expect(chatApi.util.updateQueryData).toHaveBeenNthCalledWith(
-            1,
+        // incomingMessage only patches the open conversation's history now; reconciling the chat
+        // LIST (getChats) on a new-sender message lives in chatMiddleware, not here.
+        expect(chatApi.util.updateQueryData).toHaveBeenCalledWith(
             "getChatHistory",
-            {myId, chatId: "user2"},
+            {myId, chatId: "chat9"},
             expect.any(Function)
         );
 
-        expect(chatApi.util.updateQueryData).toHaveBeenNthCalledWith(
-            2,
-            "getChats",
-            {myId},
-            expect.any(Function)
-        );
-
-        expect(dispatch).toHaveBeenCalledTimes(2);
+        expect(dispatch).toHaveBeenCalledTimes(1);
     });
 
     it("clearChatHistory: deletes history and updates cache", async () => {
@@ -147,8 +141,8 @@ describe("chatMessagesService", () => {
         expect(dispatch).not.toHaveBeenCalled();
     });
 
-    it("does nothing if selectedChatId is null", () => {
-        chatMessagesService.enqueueChatMessage(dispatch, "Hello", myId, null);
+    it("does nothing if conversationId is null", () => {
+        chatMessagesService.enqueueChatMessage(dispatch, "Hello", myId, null, "recipient1");
 
         expect(dispatch).not.toHaveBeenCalled();
         expect(logger.debug).not.toHaveBeenCalled();
@@ -156,28 +150,32 @@ describe("chatMessagesService", () => {
 
     it("dispatches enqueueMessage and flushOutbox with correct args", () => {
         const selectedChatId = "chat123";
+        const recipientId = "recipient1";
         const text = "Hello world";
 
-        chatMessagesService.enqueueChatMessage(dispatch, text, myId, selectedChatId);
+        chatMessagesService.enqueueChatMessage(dispatch, text, myId, selectedChatId, recipientId);
 
         expect(logger.debug).toHaveBeenCalledWith("sending chat message via a queue", text);
 
+        // First dispatch is the outbox enqueue; its payload carries the CHAT_IN wire frame.
         const firstCall = dispatch.mock.calls[0][0];
         expect(firstCall.type).toBe("outbox/enqueueMessage");
         expect(firstCall.payload).toMatchObject({
-            payload: {
-                from: myId,
-                to: selectedChatId,
-                text,
-            },
             status: "pending",
+            payload: {
+                type: "CHAT_IN",
+                conversationId: selectedChatId,
+                recipientId,
+                payload: { kind: "text", body: text },
+            },
         });
 
         expect(typeof firstCall.payload.id).toBe("string");
         expect(typeof firstCall.payload.idempotencyKey).toBe("string");
 
-        const secondCall = dispatch.mock.calls[1][0];
-        expect(secondCall.type).toBe("outbox/flush-mock-thunk");
+        // Last dispatch flushes the outbox (the optimistic getChatHistory patch sits in between).
+        const calls = dispatch.mock.calls;
+        expect(calls[calls.length - 1][0].type).toBe("outbox/flush-mock-thunk");
     });
 
 
