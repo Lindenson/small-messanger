@@ -1,6 +1,6 @@
 import {useCallback, useMemo, useRef, useState, useEffect} from "react";
 import {useDispatch, useSelector} from "react-redux";
-import {setSelectedChatId, setPeerRead} from "@/features/chat/model/slices/chatUiSlice";
+import {setSelectedChatId} from "@/features/chat/model/slices/chatUiSlice";
 import type {AppDispatch, RootState} from "@/store/store";
 
 import {useChatMessages} from "./useChatMessages";
@@ -175,8 +175,8 @@ export function useChat() {
         chatMessagesService.enqueueChatMessage(
             dispatch, text, myId, selectedChatId, summary.counterpartId, summary.orderId
         );
-        // New outgoing message — peer hasn't read it yet (✓, not ✓✓) until a READ_OUT.
-        dispatch(setPeerRead({chatId: selectedChatId, read: false}));
+        // A new message is naturally "not read yet": its createdAt is above the peer's read
+        // watermark, so it renders ✓ until a READ_OUT advances the watermark past it. No global reset.
     }, [selectedChatId, getSummary, myId, dispatch]);
 
     const deleteChat = useCallback(async () => {

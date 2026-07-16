@@ -52,6 +52,7 @@ interface ChatMessageView {
     id: string;
     text: string;
     fromMe: boolean;
+    createdAt: number;
     kind?: string;
     meta?: Record<string, string>;
 }
@@ -102,8 +103,8 @@ function ChatWindow({
     const selectedChatId = useSelector(
         (state: RootState) => state.chatUi.selectedChatId
     );
-    const peerRead = useSelector((state: RootState) =>
-        selectedChatId ? !!state.chatUi.peerReadByChat[selectedChatId] : false
+    const peerReadWatermark = useSelector((state: RootState) =>
+        selectedChatId ? (state.chatUi.peerReadWatermarkByChat[selectedChatId] ?? 0) : 0
     );
     const peerTyping = useSelector((state: RootState) =>
         selectedChatId ? !!state.chatUi.typingByChat[selectedChatId] : false
@@ -252,10 +253,12 @@ function ChatWindow({
                                     <span className="ml-2 text-[10px] align-bottom opacity-70" title={t("chat.sending")}>🕐</span>
                                 );
                             }
+                            // Per-message read state: read iff this message is at/below the peer's watermark.
+                            const isRead = msg.createdAt <= peerReadWatermark;
                             return (
                                 <span className="ml-2 text-[10px] align-bottom opacity-70"
-                                      title={peerRead ? t("chat.read") : t("chat.sent")}>
-                                    {peerRead ? "✓✓" : "✓"}
+                                      title={isRead ? t("chat.read") : t("chat.sent")}>
+                                    {isRead ? "✓✓" : "✓"}
                                 </span>
                             );
                         })()}

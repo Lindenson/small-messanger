@@ -45,6 +45,7 @@ export type ChatMessageView = {
     fromMe: boolean;
     text: string;
     status: ChatMessageStatus;
+    createdAt: number;   // epoch ms — compared against the peer read watermark for per-message ✓✓
     kind?: string;
     meta?: Record<string, string>;
 };

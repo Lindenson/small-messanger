@@ -4,7 +4,7 @@ import type {AppDispatch} from "@/store/store.ts";
 import {chatApi} from "@/features/chat/rest/chatApi.ts";
 import {wireToChatMessage} from "@/features/chat/model/mapper.ts";
 import {buildChatAck, buildReadIn, type WireMessage} from "@/features/chat/model/schema/wireMessage.schema.ts";
-import {markChatUnread, setPeerRead, setTyping} from "@/features/chat/model/slices/chatUiSlice.ts";
+import {markChatUnread, setPeerReadWatermark, setTyping} from "@/features/chat/model/slices/chatUiSlice.ts";
 import {markSent} from "@/features/chat/model/slices/outboxSlice.ts";
 import {logger} from "@/shared/logger/logger.ts";
 import {playNotificationSound, showDesktopNotification} from "@/shared/sound/notify.ts";
@@ -97,8 +97,12 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
         }
 
         case "READ_OUT": {
-            // The peer read my messages in this conversation → show ✓✓.
-            if (frame.conversationId) dispatch(setPeerRead({chatId: frame.conversationId, read: true}));
+            // The peer read up to now → advance the read watermark; each of my messages then shows
+            // ✓✓ iff its createdAt <= watermark (per-message, not a single conversation flag).
+            if (frame.conversationId) {
+                const at = frame.serverTimestamp ?? Date.now();
+                dispatch(setPeerReadWatermark({chatId: frame.conversationId, at}));
+            }
             break;
         }
 

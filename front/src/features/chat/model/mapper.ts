@@ -19,6 +19,7 @@ export function toChatMessageView(
         fromMe: msg.from === myId,
         text: msg.text,
         status: msg.status,
+        createdAt: msg.createdAt.getTime(),
         kind: msg.kind,
         meta: msg.meta,
     };
