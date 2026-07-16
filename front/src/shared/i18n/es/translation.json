@@ -25,7 +25,8 @@
     "logoutTitle": "Cerrar sesión",
     "logoutConfirm": "¿Seguro que quieres salir?",
     "logout": "Salir",
-    "loggingOut": "Saliendo…"
+    "loggingOut": "Saliendo…",
+    "sessionExpired": "Sesión expirada, inicia sesión de nuevo"
   },
 
   "chat": {

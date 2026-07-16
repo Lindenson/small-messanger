@@ -13,6 +13,7 @@ import { createCallMiddleware } from "@/features/call/middleware/callMiddleware"
 import { websocketMiddleware } from "@/infrastructure/middleware/wsMiddleware.ts";
 import { presenceMiddleware } from "@/features/presence/middleware/presenceMiddleware.ts";
 import { chatMiddleware } from "@/features/chat/middleware/chatMiddleware.ts";
+import { authErrorListener } from "@/features/auth/middleware/authErrorMiddleware.ts";
 
 // DB functions
 import { loadOutboxFromDB, saveOutboxToDB } from "@/features/chat/db/db";
@@ -35,7 +36,7 @@ export function configureAppStore(webRTCService: WebRTCService) {
             [idsApi.reducerPath]: idsApi.reducer,
         },
         middleware: (getDefaultMiddleware) =>
-            getDefaultMiddleware().concat(
+            getDefaultMiddleware().prepend(authErrorListener.middleware).concat(
                 chatApi.middleware,
                 contactsApi.middleware,
                 idsApi.middleware,

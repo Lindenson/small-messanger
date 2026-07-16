@@ -25,7 +25,8 @@
     "logoutTitle": "Log out",
     "logoutConfirm": "Are you sure you want to log out?",
     "logout": "Log out",
-    "loggingOut": "Logging out…"
+    "loggingOut": "Logging out…",
+    "sessionExpired": "Session expired, please log in again"
   },
 
   "chat": {
