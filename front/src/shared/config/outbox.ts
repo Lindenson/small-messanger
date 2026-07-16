@@ -1,13 +1,11 @@
-// Configurable at-least-once delivery for the chat outbox.
+// Configurable delivery for the chat outbox.
 //
-// A queued message stays in the outbox until the server confirms it with a CHAT_ACK
-// (matched by correlationId === the client messageId, which removes it). Sends are idempotent
-// on messageId, so re-sending the same queued frame is safe. The retry driver re-sends a message
-// that hasn't been ACKed within ACK_TIMEOUT, up to MAX_ATTEMPTS, after which it is marked failed.
+// A queued message stays in the outbox until the server confirms it with a CHAT_ACK (matched by
+// correlationId === the client messageId, which removes it). Because the backend does NOT dedupe by
+// the client messageId (it assigns its own), resends must be duplicate-safe: the outbox re-sends an
+// un-ACKed message AT MOST ONCE PER CONNECTION EPOCH (i.e. only after a reconnect — see
+// sendOutboxThunk). MAX_ATTEMPTS caps the number of connection-epoch attempts before the message is
+// marked failed; TICK is how often the retry driver re-checks the queue.
 export const OUTBOX_RETRY_MAX_ATTEMPTS = 6;
 
-// No CHAT_ACK within this window after a send attempt → the message is retried on the next tick.
-export const OUTBOX_RETRY_ACK_TIMEOUT_MS = 8_000;
-
-// How often the retry driver re-checks the queue (also the resend cadence for timed-out messages).
 export const OUTBOX_RETRY_TICK_MS = 3_000;

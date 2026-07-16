@@ -13,6 +13,7 @@ export type WebSocketState = {
     lastIncoming: IncomingWSMessage | null;
     lastOutgoing: OutgoingWSMessage | null;
     error: string | null;
+    epoch: number;   // incremented on each (re)connect; used by the outbox for duplicate-safe resend
 };
 
 // After the frameBridge, WebRTC signaling arrives as a `call:*` frame; everything else

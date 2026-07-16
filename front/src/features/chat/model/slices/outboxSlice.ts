@@ -31,13 +31,15 @@ const outboxSlice = createSlice({
             state.outboxVersion = bumpVersion();
         },
 
-        // Mark a message in-flight and record the attempt (drives the ACK-timeout retry + cap).
-        markSending(state, action: PayloadAction<{ id: string; at: number }>) {
+        // Mark a message in-flight and record the attempt + the connection epoch it was sent on
+        // (drives the duplicate-safe, once-per-epoch resend + the retry cap).
+        markSending(state, action: PayloadAction<{ id: string; at: number; epoch: number }>) {
             const msg = state.messages.find(m => m.id === action.payload.id);
             if (msg) {
                 msg.status = "sending";
                 msg.attempts += 1;
                 msg.lastAttemptAt = action.payload.at;
+                msg.sentEpoch = action.payload.epoch;
             }
         },
 
