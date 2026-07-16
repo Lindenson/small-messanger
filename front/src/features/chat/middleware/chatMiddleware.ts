@@ -70,18 +70,14 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
 
         case "CHAT_ACK": {
             if (!frame.correlationId) break;
-            // Our queued message was accepted → drop it from the outbox, then reconcile the open
-            // history so the optimistic (client-id) row becomes the authoritative server row.
+            // Our queued message was accepted → drop it from the outbox immediately, then reconcile
+            // the open history so the optimistic (client-id) row becomes the authoritative server
+            // row. The reconcile is COALESCED per conversation: sending several messages quickly
+            // fires an ACK each, and a full 200-row refetch + zod-parse per ACK is a real cost on
+            // slow devices — one debounced refetch per burst is enough.
             dispatch(markSent(frame.correlationId));
             const chatId = frame.conversationId ?? selectedChatId;
-            if (chatId) {
-                // Reconcile the open history; release the transient subscription once settled so
-                // it doesn't accumulate one per ACK.
-                const sub = dispatch(
-                    chatApi.endpoints.getChatHistory.initiate({myId, chatId}, {forceRefetch: true})
-                );
-                Promise.resolve(sub).finally(() => sub.unsubscribe());
-            }
+            if (chatId) scheduleHistoryReload(dispatch, myId, chatId);
             break;
         }
 
@@ -120,4 +116,25 @@ function clearTypingTimer(chatId: string) {
         clearTimeout(t);
         typingTimers.delete(chatId);
     }
+}
+
+// Per-conversation debounce for the post-ACK history reconcile, so a burst of ACKs (rapid sends)
+// collapses into a single force-refetch instead of one per message.
+const HISTORY_RELOAD_DEBOUNCE_MS = 300;
+const historyReloadTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function scheduleHistoryReload(dispatch: AppDispatch, myId: string, chatId: string) {
+    const prev = historyReloadTimers.get(chatId);
+    if (prev) clearTimeout(prev);
+    historyReloadTimers.set(
+        chatId,
+        setTimeout(() => {
+            historyReloadTimers.delete(chatId);
+            const sub = dispatch(
+                chatApi.endpoints.getChatHistory.initiate({myId, chatId}, {forceRefetch: true})
+            );
+            // Release the transient subscription once settled so it doesn't accumulate.
+            Promise.resolve(sub).finally(() => sub.unsubscribe());
+        }, HISTORY_RELOAD_DEBOUNCE_MS)
+    );
 }

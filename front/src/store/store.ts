@@ -2,7 +2,7 @@ import { configureStore } from "@reduxjs/toolkit";
 
 // Reducers
 import userReducer from "@/features/auth/slices/userSlice";
-import callReducer from "@/features/call/model/slices/callSlice";
+import callReducer, {webrtcConnected, incomingRemoteEnd} from "@/features/call/model/slices/callSlice";
 import wsReducer from "@/infrastructure/slices/websocketSlice.ts";
 import chatUiReducer from "@/features/chat/model/slices/chatUiSlice";
 import outboxReducer, { hydrateOutbox, markPersisted } from "@/features/chat/model/slices/outboxSlice";
@@ -59,6 +59,13 @@ export function configureAppStore(webRTCService: WebRTCService) {
     webRTCService.setSendCallback((data) => {
         store.dispatch({type: "ws/send", payload: data});
     });
+
+    // Reflect the peer-connection lifecycle into Redux: connected → in_call; failed/closed → idle
+    // (the service has already released camera/mic + pc by the time onEnded fires).
+    webRTCService.setEventCallbacks(
+        () => store.dispatch(webrtcConnected()),
+        () => store.dispatch(incomingRemoteEnd()),
+    );
 
     return store;
 }

@@ -30,6 +30,12 @@ export class WebRTCService {
     private sendWS?: (data: OutgoingWebRTCMessage) => void;
 
     /* ======================
+       Callbacks to reflect the peer-connection lifecycle back into Redux
+    ====================== */
+    private onConnected?: () => void;
+    private onEnded?: () => void;
+
+    /* ======================
        Initialization
     ====================== */
     public setStreamCallbacks(
@@ -42,6 +48,11 @@ export class WebRTCService {
 
     public setSendCallback(send: (data: OutgoingWebRTCMessage) => void) {
         this.sendWS = send;
+    }
+
+    public setEventCallbacks(onConnected: () => void, onEnded: () => void) {
+        this.onConnected = onConnected;
+        this.onEnded = onEnded;
     }
 
     /* ======================
@@ -117,17 +128,18 @@ export class WebRTCService {
             });
         };
 
-        // 🔥 Events возвращаются через колбеки, а не dispatch
+        // Reflect the connection lifecycle into Redux via callbacks (the service stays
+        // framework-agnostic; store.ts wires these to dispatch).
         pc.onconnectionstatechange = () => {
-            if (pc.connectionState === "connected") {
-                // Middleware подпишется на это
-            }
-
-            if (
-                pc.connectionState === "failed" ||
-                pc.connectionState === "disconnected"
-            ) {
+            const s = pc.connectionState;
+            if (s === "connected") {
+                this.onConnected?.();
+            } else if (s === "failed" || s === "closed") {
+                // Terminal: release camera/mic + peer connection AND tell Redux, so the call UI
+                // doesn't hang on a dead connection. "disconnected" is transient (ICE often
+                // recovers), so we deliberately do NOT tear the call down on it.
                 this.cleanup();
+                this.onEnded?.();
             }
         };
     }
@@ -173,26 +185,36 @@ export class WebRTCService {
         logger.debug("video call accepting offer");
 
         this.remotePeerId = from;
-        await this.init();
 
-        if (!this.pc) return;
+        // Symmetric with startCall: if getUserMedia is denied or negotiation throws, tell the
+        // caller, release everything and rethrow — otherwise a half-open pc + live camera track
+        // would linger and wedge every future call for the session.
+        try {
+            await this.init();
 
-        await (this.pc as RTCPeerConnection).setRemoteDescription(offer);
-        this.remoteReady = true;
+            if (!this.pc) return;
 
-        for (const c of this.pendingIce) {
-            await (this.pc as RTCPeerConnection).addIceCandidate(c);
+            await (this.pc as RTCPeerConnection).setRemoteDescription(offer);
+            this.remoteReady = true;
+
+            for (const c of this.pendingIce) {
+                await (this.pc as RTCPeerConnection).addIceCandidate(c);
+            }
+            this.pendingIce = [];
+
+            const answer = await (this.pc as RTCPeerConnection).createAnswer();
+            await (this.pc as RTCPeerConnection).setLocalDescription(answer);
+
+            this.send({
+                type: "call:answer",
+                to: from,
+                answer,
+            });
+        } catch (err) {
+            this.send({type: "call:end", to: from});
+            this.handleInitError(err);
+            throw err;
         }
-        this.pendingIce = [];
-
-        const answer = await (this.pc as RTCPeerConnection).createAnswer();
-        await (this.pc as RTCPeerConnection).setLocalDescription(answer);
-
-        this.send({
-            type: "call:answer",
-            to: from,
-            answer,
-        });
     }
 
     /* ======================

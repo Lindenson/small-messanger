@@ -4,7 +4,7 @@ import {
     incomingAnswer,
     incomingOffer,
     incomingRemoteEnd,
-    webrtcConnected,
+    localEnd,
 } from "@/features/call/model/slices/callSlice.js";
 import { createCallMiddleware } from "../callMiddleware";
 import type { WebRTCService } from "@/features/call/service/webRTCService";
@@ -101,10 +101,13 @@ describe("callMiddleware", () => {
         expect(webRTCService.rejectCall).toHaveBeenCalledWith("peerY");
     });
 
-    it("getConnectionState === 'connected' диспатчит webrtcConnected", () => {
-        // @ts-expect-error/for testing
-        webRTCService.getConnectionState = vi.fn(() => "connected");
-        middleware(store)(next)({ type: "any/action" });
-        expect(store.dispatch).toHaveBeenCalledWith(webrtcConnected());
+    it("call/acceptCall: если handleOffer падает — диспатчит localEnd", async () => {
+        // The connected→in_call transition is now driven by webRTCService's onConnected callback
+        // (wired in store.ts), not polled here. What callMiddleware owns is the failure path:
+        // a rejected handleOffer (e.g. camera denied) must drop the call back to idle.
+        webRTCService.handleOffer = vi.fn(() => Promise.reject(new Error("camera denied")));
+        middleware(store)(next)({ type: "call/acceptCall" });
+        await new Promise((r) => setTimeout(r, 0)); // flush the .catch microtask
+        expect(store.dispatch).toHaveBeenCalledWith(localEnd());
     });
 });

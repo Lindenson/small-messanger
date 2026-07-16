@@ -1,4 +1,5 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
+import { clearUser } from "@/features/auth/slices/userSlice.ts";
 
 // Mirrors the backend ClientData carried in PRESENT_* frames (payload.body JSON).
 export type ClientData = {
@@ -18,8 +19,11 @@ const presenceSlice = createSlice({
     name: "presence",
     initialState,
     reducers: {
-        // PRESENT_INIT — snapshot of everyone currently online (with names).
+        // PRESENT_INIT — authoritative snapshot of who is online now. Mark every known peer offline
+        // first so anyone missing from the snapshot (left while our socket was down) stops showing
+        // as a stale "online" ghost, then flip the listed ones online.
         presenceInit(state, action: PayloadAction<ClientData[]>) {
+            for (const id in state.byId) state.byId[id].online = false;
             for (const c of action.payload) {
                 if (c?.id) state.byId[c.id] = { ...c, online: true };
             }
@@ -34,6 +38,12 @@ const presenceSlice = createSlice({
             const c = action.payload;
             if (c?.id) state.byId[c.id] = { ...(state.byId[c.id] ?? c), ...c, online: false };
         },
+    },
+    extraReducers: (builder) => {
+        // Drop the whole presence directory on logout so a new session doesn't inherit stale peers.
+        builder.addCase(clearUser, (state) => {
+            state.byId = {};
+        });
     },
 });
 

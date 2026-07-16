@@ -1,4 +1,4 @@
-import {useCallback} from "react";
+import {useCallback, useMemo} from "react";
 import {useDispatch, useSelector} from "react-redux";
 import {skipToken} from "@reduxjs/toolkit/query/react";
 
@@ -60,9 +60,13 @@ export function useChatMessages() {
     );
 
     /* ======================
-       View mapping
+       View mapping (memoized: a fresh array every render made ChatWindow's
+       scroll effect fire on every render and forced a full list reconcile)
     ====================== */
-    const messages = data.map((msg) => toChatMessageView(msg, myId));
+    const messages = useMemo(
+        () => data.map((msg) => toChatMessageView(msg, myId)),
+        [data, myId]
+    );
 
     return {
         messages,

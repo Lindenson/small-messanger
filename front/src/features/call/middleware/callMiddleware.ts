@@ -4,7 +4,6 @@ import {
     incomingAnswer,
     incomingOffer,
     incomingRemoteEnd,
-    webrtcConnected,
     localEnd
 } from "@/features/call/model/slices/callSlice.js";
 import type {RootState} from "@/store/store.ts";
@@ -78,7 +77,12 @@ export const createCallMiddleware = (webRTCService: WebRTCService): Middleware =
             const offer = state.call.incomingOfferData;
 
             if (offer) {
-                webRTCService.handleOffer(offer).catch(exceptionHandler);
+                webRTCService.handleOffer(offer).catch((err) => {
+                    exceptionHandler(err);
+                    // Accepting failed (camera denied / negotiation error) — drop back to idle so
+                    // the UI doesn't hang on "connecting" (symmetric with the outgoing-call path).
+                    dispatch(localEnd());
+                });
             }
         }
 
@@ -98,16 +102,9 @@ export const createCallMiddleware = (webRTCService: WebRTCService): Middleware =
             }
         }
 
-        /* ======================
-           Check WebRTC connection state
-        ====================== */
-        const connState = webRTCService.getConnectionState();
-        if (connState === "connected") {
-            const state = getState() as RootState;
-            if (state.call.status !== "in_call") {
-                dispatch(webrtcConnected());
-            }
-        }
+        // NOTE: the "connected" → in_call transition (and "failed/closed" → idle) is now driven by
+        // webRTCService's onConnectionStateChange callbacks (wired in store.ts), not polled here on
+        // incidental Redux traffic.
 
         return result;
     };

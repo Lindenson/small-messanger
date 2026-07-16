@@ -102,9 +102,13 @@ export default function ChatWindow({
 
     const bottomRef = useRef<HTMLDivElement | null>(null);
 
+    // Scroll to the newest message only when the message set actually changes (count or last id),
+    // not on every parent re-render (presence/typing/ws-status ticks would otherwise re-trigger a
+    // smooth-scroll animation each render — a real jank source on low-end devices).
+    const lastMessageId = messages.length ? messages[messages.length - 1].id : null;
     useEffect(() => {
         bottomRef.current?.scrollIntoView({behavior: "smooth"});
-    }, [messages]);
+    }, [lastMessageId, messages.length]);
 
     const isChatOpen = !!selectedChatId;
 
@@ -165,9 +169,9 @@ export default function ChatWindow({
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-3 bg-gray-300">
-                {messages?.map((msg, i) => (
+                {messages?.map((msg) => (
                     <div
-                        key={i}
+                        key={msg.id}
                         className={`max-w-xs px-4 py-2 rounded-lg text-sm ${
                             msg.fromMe
                                 ? "ml-auto bg-teal-950 text-white rounded-br-none"
