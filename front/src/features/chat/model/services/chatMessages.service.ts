@@ -73,24 +73,26 @@ export const chatMessagesService = {
         // CHAT_ACK), so show our own message immediately. The client messageId is used as
         // the id; on the next history read-through RTK Query replaces the list with the
         // server's authoritative rows, so this transient copy can't duplicate.
+        const optimistic = {
+            id: outboxMsg.id,
+            clientId: outboxMsg.id,   // dedup key (matches correlationId on echoes)
+            chatId: conversationId,
+            from: myId,
+            to: recipientId,
+            text,
+            createdAt: new Date(),
+            status: "sent" as const,
+        };
         dispatch(
             chatApi.util.updateQueryData(
                 "getChatHistory",
                 {myId, chatId: conversationId},
                 (draft) => {
-                    if (!draft) return;
-                    if (!draft.some((m) => m.id === outboxMsg.id)) {
-                        draft.push({
-                            id: outboxMsg.id,
-                            clientId: outboxMsg.id,   // dedup key (matches correlationId on echoes)
-                            chatId: conversationId,
-                            from: myId,
-                            to: recipientId,
-                            text,
-                            createdAt: new Date(),
-                            status: "sent",
-                        });
-                    }
+                    // Seed the array when history hasn't loaded yet (e.g. the chat was opened while
+                    // OFFLINE → getChatHistory errored → data is undefined). Without this the echo
+                    // was silently dropped and the 🕐 message only appeared after reconnect.
+                    if (!draft) return [optimistic];
+                    if (!draft.some((m) => m.id === outboxMsg.id)) draft.push(optimistic);
                 }
             )
         );
