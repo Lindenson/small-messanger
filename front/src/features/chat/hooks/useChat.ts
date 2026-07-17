@@ -165,6 +165,19 @@ export function useChat() {
         }
     }, [wsStatus, selectedChatId, reloadChatHistory, dispatch]);
 
+    // Deferred read: messages that arrived while the tab was hidden are marked read only when the
+    // tab regains focus with the chat still open (mirrors the "active = open AND visible" rule).
+    useEffect(() => {
+        const onVisible = () => {
+            if (document.visibilityState !== "visible" || !selectedChatId) return;
+            markRead(selectedChatId);
+            const s = getSummary(selectedChatId);
+            if (s) dispatch({type: "ws/send", payload: buildReadIn(selectedChatId, s.counterpartId)});
+        };
+        document.addEventListener("visibilitychange", onVisible);
+        return () => document.removeEventListener("visibilitychange", onVisible);
+    }, [selectedChatId, markRead, getSummary, dispatch]);
+
     /* ======================
        Actions (memoized so <ChatWindow>/<ChatList> can be React.memo'd)
     ====================== */

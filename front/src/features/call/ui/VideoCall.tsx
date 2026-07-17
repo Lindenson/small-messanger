@@ -68,6 +68,11 @@ export default function VideoCall({
 
     return (
         <div className="fixed inset-0 bg-black z-50 flex">
+            {(callStatus === "calling" || callStatus === "connecting") && (
+                <div className="absolute top-8 inset-x-0 text-center text-white text-lg z-10">
+                    {callStatus === "calling" ? t("call.calling", {name: callerName}) : t("call.connecting")}
+                </div>
+            )}
             <video
                 autoPlay
                 muted

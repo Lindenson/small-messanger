@@ -4,6 +4,10 @@ const TURN_HOST = (import.meta.env.VITE_TURN_HOST as string | undefined) ?? "91.
 const TURN_USER = (import.meta.env.VITE_TURN_USER as string | undefined) ?? "user";
 const TURN_PASS = (import.meta.env.VITE_TURN_PASS as string | undefined) ?? "pass";
 
+// If an outgoing call isn't answered/connected within this window, give up (end + toast) instead
+// of leaving the caller on a black screen forever.
+export const CALL_TIMEOUT_MS = 30_000;
+
 export const ICE_SERVERS: RTCConfiguration = {
     iceServers: [
         { urls: "stun:stun.l.google.com:19302" },

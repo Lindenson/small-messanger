@@ -18,6 +18,9 @@
     "signingIn": "Signing in…",
     "creatingAccount": "Creating account…",
     "password": "Password",
+    "role": "Role",
+    "roleClient": "Client",
+    "roleMaster": "Master",
     "noAccount": "Don't have an account?",
     "registerLink": "Register",
     "toLogin": "To",
@@ -89,6 +92,9 @@
   "call": {
     "incoming": "Incoming call",
     "callingYou": "{{name}} is calling you",
+    "calling": "Calling {{name}}…",
+    "connecting": "Connecting…",
+    "noAnswer": "No answer",
     "accept": "Accept",
     "reject": "Reject",
     "hangUp": "End call"

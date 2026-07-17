@@ -129,7 +129,19 @@ export default function RegistrationPage() {
 
                 {lastNode && renderRegistration(lastNode, {type: "text", required: true}, flow)}
 
-                {roleNode && renderRegistration(roleNode, {type: "text"}, flow)}
+                {roleNode && (
+                    <div className="mb-3">
+                        <label className="block text-sm font-medium mb-1">{t("auth.role")}</label>
+                        <select
+                            name="traits.role"
+                            defaultValue={(roleNode.attributes as UiNodeInputAttributes).value || "client"}
+                            className="w-full border rounded px-3 py-2"
+                        >
+                            <option value="client">{t("auth.roleClient")}</option>
+                            <option value="master">{t("auth.roleMaster")}</option>
+                        </select>
+                    </div>
+                )}
 
                 {passwordNode && renderRegistration(
                     passwordNode,

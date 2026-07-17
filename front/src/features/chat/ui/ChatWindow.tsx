@@ -6,6 +6,9 @@ import type {Contact} from "@/features/contacts/model/schema/domainContract.sche
 import {setSelectedChatId} from "@/features/chat/model/slices/chatUiSlice.ts";
 import {MESSAGE_WINDOW_INITIAL, MESSAGE_WINDOW_STEP} from "@/shared/config/chat.ts";
 
+// Local HH:mm for a message timestamp (epoch ms).
+const fmtTime = (ms: number) => new Date(ms).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+
 /** Inline thumbnail for image attachments. Presigned GET URLs expire, so it resolves
  *  a fresh URL on mount (per attachmentId). Click opens the full image in a new tab. */
 function AttachmentImage({
@@ -115,6 +118,14 @@ function ChatWindow({
     );
 
     const bottomRef = useRef<HTMLDivElement | null>(null);
+    const listRef = useRef<HTMLDivElement | null>(null);
+    // Track whether the user is at the bottom, so a new message doesn't yank them up out of the
+    // history they're reading.
+    const atBottomRef = useRef(true);
+    const onListScroll = () => {
+        const el = listRef.current;
+        atBottomRef.current = el ? el.scrollHeight - el.scrollTop - el.clientHeight < 120 : true;
+    };
 
     // Windowed rendering: keep only the most recent messages in the DOM so a long history doesn't
     // reconcile hundreds of bubbles. "Show earlier" reveals another step. Reset to the tail when
@@ -129,12 +140,16 @@ function ChatWindow({
     );
     const hasEarlier = messages.length > visibleCount;
 
-    // Scroll to the newest message only when the message set actually changes (count or last id),
-    // not on every parent re-render (presence/typing/ws-status ticks would otherwise re-trigger a
-    // smooth-scroll animation each render — a real jank source on low-end devices).
+    // Opening a chat lands at the newest message (and resets the "at bottom" tracking).
+    useEffect(() => {
+        atBottomRef.current = true;
+        bottomRef.current?.scrollIntoView();
+    }, [selectedChatId]);
+
+    // A new message follows to the bottom ONLY if the user is already there; otherwise stay put.
     const lastMessageId = messages.length ? messages[messages.length - 1].id : null;
     useEffect(() => {
-        bottomRef.current?.scrollIntoView({behavior: "smooth"});
+        if (atBottomRef.current) bottomRef.current?.scrollIntoView({behavior: "smooth"});
     }, [lastMessageId, messages.length]);
 
     const isChatOpen = !!selectedChatId;
@@ -200,7 +215,8 @@ function ChatWindow({
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-3 bg-gray-300">
+            <div ref={listRef} onScroll={onListScroll}
+                 className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-3 bg-gray-300">
                 {hasEarlier && (
                     <button
                         onClick={() => setVisibleCount((c) => c + MESSAGE_WINDOW_STEP)}
@@ -237,6 +253,7 @@ function ChatWindow({
                         ) : (
                             msg.text
                         )}
+                        <span className="ml-2 text-[10px] align-bottom opacity-50">{fmtTime(msg.createdAt)}</span>
                         {msg.fromMe && (() => {
                             const st = outboxStatusById?.[msg.id];
                             if (st === "failed") {

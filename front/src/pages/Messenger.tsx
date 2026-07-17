@@ -10,6 +10,7 @@ import ConfirmModal from "@/widgets/modal/ConfirmModal.jsx";
 import VideoCall from "@/features/call/ui/VideoCall.tsx";
 import {useChat} from "@/features/chat/hooks";
 import {useOutboxRetry} from "@/features/chat/hooks/useOutboxRetry.ts";
+import {useCallTimeout} from "@/features/call/hooks/useCallTimeout.ts";
 
 import type {RootState, AppDispatch} from "@/store/store.ts";
 import {outgoingCall, acceptCall, localEnd, rejectCall} from "@/features/call/model/slices/callSlice";
@@ -23,6 +24,8 @@ export default function Messenger() {
 
     // Periodic outbox retry driver (ACK-timeout resend).
     useOutboxRetry();
+    // End an unanswered outgoing call after a timeout.
+    useCallTimeout();
 
     /* ======================
        WebRTC service

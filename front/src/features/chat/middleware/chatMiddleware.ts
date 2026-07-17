@@ -67,16 +67,16 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
             clearTypingTimer(chatId);
             dispatch(setTyping({chatId, typing: false}));
 
-            if (chatId === selectedChatId) {
-                // Viewing this chat → mark READ immediately (peer gets READ_OUT).
+            // "Actively viewing" = the chat is open AND the tab is visible. Only then is it truly
+            // read; a message that arrives while the tab is hidden is marked unread (and the
+            // deferred read fires when the tab regains focus — see useChat).
+            const hidden = typeof document !== "undefined" && document.hidden;
+            const active = chatId === selectedChatId && !hidden;
+            if (active) {
                 if (frame.senderId) dispatch({type: "ws/send", payload: buildReadIn(chatId, frame.senderId)});
             } else {
                 dispatch(markChatUnread(chatId));
-            }
-
-            // Best-effort notify when the message isn't for the chat the user is actively viewing.
-            const hidden = typeof document !== "undefined" && document.hidden;
-            if (chatId !== selectedChatId || hidden) {
+                // Best-effort notify when not actively viewing.
                 playNotificationSound();
                 if (hidden) showDesktopNotification(i18n.t("chat.newMessage"), msg.text || "");
             }
