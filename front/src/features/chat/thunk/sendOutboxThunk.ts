@@ -1,7 +1,7 @@
 import {createAsyncThunk} from "@reduxjs/toolkit";
 import {markSending, markFailed} from "../model/slices/outboxSlice.ts";
 import type {RootState} from "@/store/store";
-import {OUTBOX_RETRY_MAX_ATTEMPTS} from "@/shared/config/outbox.ts";
+import {OUTBOX_RETRY_MAX_ATTEMPTS, OUTBOX_SEND_TIMEOUT_MS} from "@/shared/config/outbox.ts";
 
 // Push queued CHAT_IN frames over the WebSocket with duplicate-safe, at-least-once-per-epoch
 // delivery. Delivery is confirmed out-of-band by the server CHAT_ACK (correlationId === the client
@@ -28,8 +28,19 @@ export const flushOutbox = createAsyncThunk<void, void, { state: RootState }>(
         for (const msg of state.outbox.messages) {
             if (msg.status === "sent" || msg.status === "failed") continue;
 
-            // Already sent on THIS connection — delivered over TCP, just awaiting the ACK. Do not
-            // resend (that would duplicate it server-side).
+            // Sent on a live connection but no ACK for too long (lost ACK, or a blocked/rejected
+            // send) → surface it as failed (⚠ + retry) instead of a permanent 🕐.
+            if (
+                msg.status === "sending" &&
+                msg.lastAttemptAt !== undefined &&
+                now - msg.lastAttemptAt >= OUTBOX_SEND_TIMEOUT_MS
+            ) {
+                dispatch(markFailed(msg.id));
+                continue;
+            }
+
+            // Already sent on THIS connection and still within the ACK window — delivered over TCP,
+            // just awaiting the ACK. Do not resend (that would duplicate it server-side).
             if (msg.sentEpoch === epoch) continue;
 
             // Retries (across reconnects) exhausted — stop and surface the failure.

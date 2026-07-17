@@ -68,6 +68,8 @@ interface ChatWindowProps {
     onTyping?: () => void;
     onToggleBlock?: () => void;
     blocked?: boolean;
+    blockedByMe?: boolean;
+    blockedByPeer?: boolean;
     onDeleteMessage?: (id: string) => void;
     onSendAttachment?: (file: File) => void;
     onDownloadAttachment?: (attachmentId: string) => void;
@@ -88,6 +90,8 @@ function ChatWindow({
                         onTyping,
                         onToggleBlock,
                         blocked,
+                        blockedByMe,
+                        blockedByPeer,
                         onDeleteMessage,
                         onSendAttachment,
                         onDownloadAttachment,
@@ -177,11 +181,11 @@ function ChatWindow({
 
                     <button
                         onClick={onToggleBlock}
-                        title={blocked ? t("chat.unblock") : t("chat.block")}
-                        aria-label={blocked ? t("chat.unblock") : t("chat.block")}
+                        title={blockedByMe ? t("chat.unblock") : t("chat.block")}
+                        aria-label={blockedByMe ? t("chat.unblock") : t("chat.block")}
                         className="hover:opacity-80 text-xl"
                     >
-                        {blocked ? "🔓" : "🚫"}
+                        {blockedByMe ? "🔓" : "🚫"}
                     </button>
 
                     <button
@@ -277,7 +281,12 @@ function ChatWindow({
                 <div ref={bottomRef}/>
             </div>
 
-            {/* Input */}
+            {/* Input — replaced by a banner when the pair is blocked (mutual: neither side can send) */}
+            {blocked ? (
+                <div className="shrink-0 p-3 bg-gray-100 border-t text-center text-sm text-gray-600">
+                    {blockedByPeer ? t("chat.blockedByPeer") : t("chat.blockedByYou")}
+                </div>
+            ) : (
             <div className="shrink-0 p-4 bg-white border-t flex items-center gap-2">
                 <input
                     type="file"
@@ -313,6 +322,7 @@ function ChatWindow({
                     ↑
                 </button>
             </div>
+            )}
         </main>
     );
 }

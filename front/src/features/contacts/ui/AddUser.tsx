@@ -104,6 +104,8 @@ export default function AddContactPage() {
                             counterpartId,
                             orderId: conv.metadata?.orderId,
                             blocked: false,
+                            blockedByMe: false,
+                            blockedByPeer: false,
                         });
                     }
                 })

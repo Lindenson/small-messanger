@@ -75,14 +75,23 @@ export function useChat() {
         () => (selectedChatId ? getSummary(selectedChatId)?.blocked ?? false : false),
         [selectedChatId, getSummary]
     );
+    const selectedBlockedByMe = useMemo(
+        () => (selectedChatId ? getSummary(selectedChatId)?.blockedByMe ?? false : false),
+        [selectedChatId, getSummary]
+    );
+    const selectedBlockedByPeer = useMemo(
+        () => (selectedChatId ? getSummary(selectedChatId)?.blockedByPeer ?? false : false),
+        [selectedChatId, getSummary]
+    );
 
+    // Toggle only MY side of the block (I can't lift the peer's block).
     const toggleBlock = useCallback(async () => {
         if (!selectedChatId) return;
         try {
-            if (selectedBlocked) { await unblockChat({chatId: selectedChatId}).unwrap(); toast.success(t("chat.unblocked")); }
+            if (selectedBlockedByMe) { await unblockChat({chatId: selectedChatId}).unwrap(); toast.success(t("chat.unblocked")); }
             else { await blockChat({chatId: selectedChatId}).unwrap(); toast.success(t("chat.blocked")); }
         } catch { toast.error(t("chat.blockError")); }
-    }, [selectedChatId, selectedBlocked, unblockChat, blockChat, t]);
+    }, [selectedChatId, selectedBlockedByMe, unblockChat, blockChat, t]);
 
     const deleteMessage = useCallback(async (messageId: string) => {
         if (!selectedChatId) return;
@@ -228,6 +237,8 @@ export function useChat() {
         selectedChatId,
         selectedCounterpartId,
         selectedBlocked,
+        selectedBlockedByMe,
+        selectedBlockedByPeer,
         toggleBlock,
         deleteMessage,
         sendAttachment,

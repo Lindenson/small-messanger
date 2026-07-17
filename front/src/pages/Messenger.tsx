@@ -5,6 +5,7 @@ import {useTranslation} from "react-i18next";
 
 import ChatList from "@/features/chat/ui/ChatList.tsx";
 import ChatWindow from "@/features/chat/ui/ChatWindow.js";
+import {ConnectionBanner} from "@/features/chat/ui/ConnectionBanner.tsx";
 import ConfirmModal from "@/widgets/modal/ConfirmModal.jsx";
 import VideoCall from "@/features/call/ui/VideoCall.tsx";
 import {useChat} from "@/features/chat/hooks";
@@ -61,7 +62,8 @@ export default function Messenger() {
        Render
     ====================== */
     return (
-        <div className="h-dvh w-screen flex overflow-hidden bg-gray-300">
+        <div className="relative h-dvh w-screen flex overflow-hidden bg-gray-300">
+            <ConnectionBanner/>
             {/* ===== Chat List ===== */}
             <ChatList
                 chats={chat.filteredChats}
@@ -83,6 +85,8 @@ export default function Messenger() {
                 onTyping={chat.notifyTyping}
                 onToggleBlock={chat.toggleBlock}
                 blocked={chat.selectedBlocked}
+                blockedByMe={chat.selectedBlockedByMe}
+                blockedByPeer={chat.selectedBlockedByPeer}
                 onDeleteMessage={chat.deleteMessage}
                 onSendAttachment={chat.sendAttachment}
                 onDownloadAttachment={chat.downloadAttachment}

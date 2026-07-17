@@ -41,7 +41,9 @@ export type ChatSummary = {
     conversationId: string;
     counterpartId: string;
     orderId?: string;
-    blocked: boolean;
+    blocked: boolean;        // either side blocked → sending is impossible (block is mutual/terminal)
+    blockedByMe: boolean;    // I blocked the peer (I can unblock)
+    blockedByPeer: boolean;  // the peer blocked me (I can't unblock their side)
 };
 
 export const chatApi = createApi({
@@ -60,12 +62,19 @@ export const chatApi = createApi({
             query: () => `/chats`,
             transformResponse: (response: unknown, _meta, arg): ChatSummary[] => {
                 if (!Array.isArray(response)) return [];
-                return (response as Conversation[]).map((c) => ({
-                    conversationId: c.id,
-                    counterpartId: c.clientId === arg.myId ? c.masterId : c.clientId,
-                    orderId: c.metadata?.orderId,
-                    blocked: Boolean(c.clientBlocked || c.masterBlocked),
-                }));
+                return (response as Conversation[]).map((c) => {
+                    const amClient = c.clientId === arg.myId;
+                    const blockedByMe = amClient ? Boolean(c.clientBlocked) : Boolean(c.masterBlocked);
+                    const blockedByPeer = amClient ? Boolean(c.masterBlocked) : Boolean(c.clientBlocked);
+                    return {
+                        conversationId: c.id,
+                        counterpartId: amClient ? c.masterId : c.clientId,
+                        orderId: c.metadata?.orderId,
+                        blocked: blockedByMe || blockedByPeer,
+                        blockedByMe,
+                        blockedByPeer,
+                    };
+                });
             },
             providesTags: ["Chats"],
         }),
