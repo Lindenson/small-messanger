@@ -268,7 +268,7 @@ function ChatWindow({
 
             {/* Messages */}
             <div ref={listRef} onScroll={onListScroll}
-                 className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-3 bg-gray-300">
+                 className="flex-1 overflow-y-auto overscroll-contain p-4 bg-gray-300">
                 {hasEarlier && (
                     <button
                         onClick={() => setVisibleCount((c) => c + MESSAGE_WINDOW_STEP)}
@@ -280,6 +280,10 @@ function ChatWindow({
                 {shown.map((msg, idx) => {
                     const prev = idx > 0 ? shown[idx - 1] : null;
                     const showDate = !prev || !sameDay(prev.createdAt, msg.createdAt);
+                    // Tighten spacing for a run of consecutive same-sender messages (within 5 min).
+                    const grouped = !!prev && !showDate && prev.fromMe === msg.fromMe
+                        && (msg.createdAt - prev.createdAt) < 5 * 60 * 1000;
+                    const bubbleMt = showDate ? "mt-0" : grouped ? "mt-0.5" : "mt-3";
                     return (
                     <Fragment key={msg.id}>
                     {showDate && (
@@ -290,7 +294,7 @@ function ChatWindow({
                         </div>
                     )}
                     <div
-                        className={`max-w-xs px-4 py-2 rounded-lg text-sm whitespace-pre-wrap break-words ${
+                        className={`${bubbleMt} max-w-xs px-4 py-2 rounded-lg text-sm whitespace-pre-wrap break-words ${
                             msg.fromMe
                                 ? "ml-auto bg-teal-950 text-white rounded-br-none"
                                 : "mr-auto bg-white text-teal-950 rounded-bl-none"

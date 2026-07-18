@@ -7,6 +7,12 @@ import type {RootState} from "@/store/store";
 import type {Contact} from "@/features/contacts/model/schema/domainContract.schema.ts";
 import i18n, {setLanguage} from "@/shared/i18n";
 
+// First+last initial for the list avatar (falls back to "?").
+const initials = (name: string) => {
+    const p = name.trim().split(/\s+/).filter(Boolean);
+    return ((p[0]?.[0] ?? "") + (p[1]?.[0] ?? "")).toUpperCase() || "?";
+};
+
 interface ChatListProps {
     chats: Contact[];
     openChat: (chatId: string) => void;
@@ -121,34 +127,30 @@ function ChatList({
                             <div
                                 key={chat.id}
                                 onClick={() => openChat(chat.id)}
-                                className={`p-4 cursor-pointer hover:bg-gray-100
+                                className={`p-3 flex items-center gap-3 cursor-pointer hover:bg-gray-100
                                 ${selectedChatId === chat.id ? "bg-gray-100" : ""}`}
                             >
-                                {/* Name + presence/unread dot */}
-                                <div className="flex items-center gap-2">
+                                {/* Initials avatar + online dot */}
+                                <span className="relative shrink-0">
+                                    <span className="w-10 h-10 rounded-full bg-teal-950 text-white text-sm flex items-center justify-center">
+                                        {initials(chat.name)}
+                                    </span>
                                     <span
-                                        className={`w-2 h-2 rounded-full shrink-0 ${chat.online ? "bg-green-500" : "bg-gray-300"}`}
+                                        className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-gray-200 ${chat.online ? "bg-green-500" : "bg-gray-400"}`}
                                         title={chat.online ? t("chat.online") : t("chat.offline")}
                                     />
-                                    {isUnread && (
-                                        <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0"/>
-                                    )}
-                                    <span
-                                        className={`truncate ${
-                                            isUnread ? "font-semibold text-gray-900" : "font-medium text-gray-800"
-                                        }`}
-                                    >
-                    {chat.name}
-                  </span>
-                                </div>
+                                </span>
 
-                                {/* Last message */}
-                                <div
-                                    className={`text-sm truncate pl-2 ${
-                                        isUnread ? "text-gray-900" : "text-gray-500"
-                                    }`}
-                                >
-                                    {chat.email}
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2">
+                                        {isUnread && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0"/>}
+                                        <span className={`truncate ${isUnread ? "font-semibold text-gray-900" : "font-medium text-gray-800"}`}>
+                                            {chat.name}
+                                        </span>
+                                    </div>
+                                    <div className={`text-sm truncate ${isUnread ? "text-gray-900" : "text-gray-500"}`}>
+                                        {chat.email}
+                                    </div>
                                 </div>
                             </div>
                         );
