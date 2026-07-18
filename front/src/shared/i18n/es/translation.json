@@ -72,6 +72,8 @@
     "msgDeleteError": "No se pudo borrar el mensaje",
     "fileSent": "Archivo enviado",
     "fileError": "No se pudo enviar el archivo",
+    "fileTooLarge": "Archivo demasiado grande (máx {{mb}} MB)",
+    "uploading": "Subiendo… {{p}}%",
     "downloadError": "No se pudo descargar"
   },
 

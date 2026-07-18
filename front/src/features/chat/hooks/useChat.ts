@@ -17,6 +17,7 @@ import toast from "react-hot-toast";
 import {useTranslation} from "react-i18next";
 import {buildReadIn, buildTypingIn} from "@/features/chat/model/schema/wireMessage.schema.ts";
 import {flushOutbox} from "@/features/chat/thunk/sendOutboxThunk.ts";
+import {MAX_ATTACHMENT_BYTES} from "@/shared/config/chat.ts";
 
 
 export function useChat() {
@@ -28,6 +29,7 @@ export function useChat() {
     ====================== */
     const [messageInput, setMessageInput] = useState("");
     const [searchQuery, setSearchQuery] = useState("");
+    const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
     /* ======================
        Global state
@@ -105,21 +107,37 @@ export function useChat() {
 
     const sendAttachment = useCallback(async (file: File) => {
         if (!selectedChatId || !file) return;
+        if (file.size > MAX_ATTACHMENT_BYTES) {
+            toast.error(t("chat.fileTooLarge", {mb: Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}));
+            return;
+        }
         const contentType = file.type || "application/octet-stream";
+        setUploadProgress(0);
         try {
             const up = await uploadUrlMut({
                 chatId: selectedChatId, fileName: file.name, contentType, sizeBytes: file.size,
             }).unwrap();
-            const put = await fetch(up.uploadUrl, {
-                method: up.method || "PUT", body: file, headers: {"Content-Type": contentType},
+            // XHR (not fetch) so we can report upload progress to the composer.
+            await new Promise<void>((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open(up.method || "PUT", up.uploadUrl);
+                xhr.setRequestHeader("Content-Type", contentType);
+                xhr.upload.onprogress = (e) => {
+                    if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100));
+                };
+                xhr.onload = () =>
+                    xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error("upload PUT " + xhr.status));
+                xhr.onerror = () => reject(new Error("upload network error"));
+                xhr.send(file);
             });
-            if (!put.ok) throw new Error("upload PUT " + put.status);
             await confirmMut({chatId: selectedChatId, attachmentId: up.attachmentId}).unwrap();
             reloadChatHistory().catch(() => {});
             toast.success(t("chat.fileSent"));
         } catch (e) {
             logger.error("sendAttachment failed", e as Error);
             toast.error(t("chat.fileError"));
+        } finally {
+            setUploadProgress(null);
         }
     }, [selectedChatId, uploadUrlMut, confirmMut, reloadChatHistory, t]);
 
@@ -255,6 +273,7 @@ export function useChat() {
         toggleBlock,
         deleteMessage,
         sendAttachment,
+        uploadProgress,
         downloadAttachment,
         getAttachmentUrl,
         notifyTyping,

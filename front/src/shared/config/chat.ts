@@ -10,3 +10,6 @@ export const MESSAGE_WINDOW_STEP = 60;
 // HISTORY_MAX_PAGES to bound pathological loads. Rendering is still windowed (MESSAGE_WINDOW_*).
 export const HISTORY_PAGE_SIZE = 200;
 export const HISTORY_MAX_PAGES = 25;
+
+// Max attachment size accepted client-side (before requesting a presigned upload URL).
+export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024; // 25 MB

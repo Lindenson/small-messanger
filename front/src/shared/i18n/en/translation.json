@@ -72,6 +72,8 @@
     "msgDeleteError": "Could not delete the message",
     "fileSent": "File sent",
     "fileError": "Could not send the file",
+    "fileTooLarge": "File too large (max {{mb}} MB)",
+    "uploading": "Uploading… {{p}}%",
     "downloadError": "Could not download"
   },
 

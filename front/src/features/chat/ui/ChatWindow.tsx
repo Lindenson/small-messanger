@@ -103,6 +103,7 @@ interface ChatWindowProps {
     blockedByPeer?: boolean;
     onDeleteMessage?: (id: string) => void;
     onSendAttachment?: (file: File) => void;
+    uploadProgress?: number | null;
     onDownloadAttachment?: (attachmentId: string) => void;
     onResolveAttachment?: (attachmentId: string) => Promise<string | null>;
     outboxStatusById?: Record<string, string>;
@@ -125,6 +126,7 @@ function ChatWindow({
                         blockedByPeer,
                         onDeleteMessage,
                         onSendAttachment,
+                        uploadProgress,
                         onDownloadAttachment,
                         onResolveAttachment,
                         outboxStatusById,
@@ -374,6 +376,16 @@ function ChatWindow({
                 >
                     ↓ {unseenBelow}
                 </button>
+            )}
+
+            {/* Attachment upload progress */}
+            {uploadProgress != null && (
+                <div className="shrink-0 px-4 pt-2 bg-white">
+                    <div className="text-[11px] text-gray-500 mb-1">{t("chat.uploading", {p: uploadProgress})}</div>
+                    <div className="h-1 bg-gray-200 rounded-full overflow-hidden">
+                        <div className="h-full bg-teal-700 transition-all" style={{width: `${uploadProgress}%`}}/>
+                    </div>
+                </div>
             )}
 
             {/* Input — replaced by a banner when the pair is blocked (mutual: neither side can send) */}

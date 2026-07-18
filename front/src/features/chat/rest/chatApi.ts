@@ -190,14 +190,33 @@ export const chatApi = createApi({
             invalidatesTags: ["Chats"],
         }),
 
-        // Block / unblock the peer (mutual; the only terminal messaging stop).
+        // Block / unblock the peer (mutual; the only terminal messaging stop). Optimistically flip
+        // MY block flag in the getChats cache so the UI reacts instantly; undo on failure.
         blockChat: builder.mutation<void, { chatId: string }>({
             query: ({ chatId }) => ({ url: `/chats/${chatId}/block`, method: "POST" }),
             invalidatesTags: ["Chats"],
+            async onQueryStarted({ chatId }, { dispatch, getState, queryFulfilled }) {
+                const myId = (getState() as { user?: { id?: string } })?.user?.id;
+                if (!myId) return;
+                const patch = dispatch(chatApi.util.updateQueryData("getChats", { myId }, (draft) => {
+                    const s = draft.find((c) => c.conversationId === chatId);
+                    if (s) { s.blockedByMe = true; s.blocked = true; }
+                }));
+                try { await queryFulfilled; } catch { patch.undo(); }
+            },
         }),
         unblockChat: builder.mutation<void, { chatId: string }>({
             query: ({ chatId }) => ({ url: `/chats/${chatId}/block`, method: "DELETE" }),
             invalidatesTags: ["Chats"],
+            async onQueryStarted({ chatId }, { dispatch, getState, queryFulfilled }) {
+                const myId = (getState() as { user?: { id?: string } })?.user?.id;
+                if (!myId) return;
+                const patch = dispatch(chatApi.util.updateQueryData("getChats", { myId }, (draft) => {
+                    const s = draft.find((c) => c.conversationId === chatId);
+                    if (s) { s.blockedByMe = false; s.blocked = s.blockedByPeer; }
+                }));
+                try { await queryFulfilled; } catch { patch.undo(); }
+            },
         }),
 
         // Delete a single message (only if not frozen → 409).

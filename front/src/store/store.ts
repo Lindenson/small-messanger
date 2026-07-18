@@ -47,14 +47,18 @@ export function configureAppStore(webRTCService: WebRTCService) {
             ),
     });
 
+    // Persist the outbox to IndexedDB, debounced: the subscriber runs on every dispatched action,
+    // so coalesce a burst of outbox changes (enqueue → sending → sent) into one write.
+    let saveTimer: ReturnType<typeof setTimeout> | null = null;
     store.subscribe(() => {
-        const state = store.getState().outbox;
-
-        if (state.outboxVersion !== state.persistedVersion) {
-            saveOutboxToDB(state).then(() => {
-                store.dispatch(markPersisted());
-            });
-        }
+        const s = store.getState().outbox;
+        if (s.outboxVersion === s.persistedVersion || saveTimer) return;
+        saveTimer = setTimeout(() => {
+            saveTimer = null;
+            const cur = store.getState().outbox;
+            if (cur.outboxVersion === cur.persistedVersion) return;
+            saveOutboxToDB(cur).then(() => store.dispatch(markPersisted()));
+        }, 400);
     });
 
     webRTCService.setSendCallback((data) => {

@@ -92,6 +92,7 @@ export default function Messenger() {
                 blockedByPeer={chat.selectedBlockedByPeer}
                 onDeleteMessage={chat.deleteMessage}
                 onSendAttachment={chat.sendAttachment}
+                uploadProgress={chat.uploadProgress}
                 onDownloadAttachment={chat.downloadAttachment}
                 onResolveAttachment={chat.getAttachmentUrl}
                 outboxStatusById={chat.outboxStatusById}
