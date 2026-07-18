@@ -1,4 +1,4 @@
-import {memo, useEffect, useMemo, useRef, useState} from "react";
+import {Fragment, memo, useEffect, useMemo, useRef, useState} from "react";
 import {useDispatch, useSelector} from "react-redux";
 import {useTranslation} from "react-i18next";
 import type {RootState} from "@/store/store";
@@ -8,6 +8,34 @@ import {MESSAGE_WINDOW_INITIAL, MESSAGE_WINDOW_STEP} from "@/shared/config/chat.
 
 // Local HH:mm for a message timestamp (epoch ms).
 const fmtTime = (ms: number) => new Date(ms).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+
+// Render message text with clickable links. Safe: builds React nodes (no HTML injection).
+const URL_RE = /(https?:\/\/[^\s]+)/g;
+function linkify(text: string) {
+    return text.split(URL_RE).map((part, i) =>
+        /^https?:\/\//.test(part)
+            ? <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="underline break-all">{part}</a>
+            : <Fragment key={i}>{part}</Fragment>
+    );
+}
+
+const sameDay = (a: number, b: number) => {
+    const x = new Date(a), y = new Date(b);
+    return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate();
+};
+// "Hoy" / "Ayer" / a localized date for the day-separator chips.
+function dateLabel(ms: number, t: (k: string) => string) {
+    const now = Date.now();
+    const yesterday = now - 86_400_000;
+    if (sameDay(ms, now)) return t("chat.today");
+    if (sameDay(ms, yesterday)) return t("chat.yesterday");
+    const d = new Date(ms);
+    return d.toLocaleDateString([], {
+        day: "2-digit",
+        month: "short",
+        year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+    });
+}
 
 /** Inline thumbnail for image attachments. Presigned GET URLs expire, so it resolves
  *  a fresh URL on mount (per attachmentId). Click opens the full image in a new tab. */
@@ -119,12 +147,23 @@ function ChatWindow({
 
     const bottomRef = useRef<HTMLDivElement | null>(null);
     const listRef = useRef<HTMLDivElement | null>(null);
+    const inputRef = useRef<HTMLTextAreaElement | null>(null);
     // Track whether the user is at the bottom, so a new message doesn't yank them up out of the
-    // history they're reading.
+    // history they're reading; unseenBelow drives the "↓ N new" jump button.
     const atBottomRef = useRef(true);
+    const prevLenRef = useRef(messages.length);
+    const [unseenBelow, setUnseenBelow] = useState(0);
+
+    const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+        bottomRef.current?.scrollIntoView({behavior});
+        atBottomRef.current = true;
+        setUnseenBelow(0);
+    };
     const onListScroll = () => {
         const el = listRef.current;
-        atBottomRef.current = el ? el.scrollHeight - el.scrollTop - el.clientHeight < 120 : true;
+        const atBottom = el ? el.scrollHeight - el.scrollTop - el.clientHeight < 120 : true;
+        atBottomRef.current = atBottom;
+        if (atBottom && unseenBelow) setUnseenBelow(0);
     };
 
     // Windowed rendering: keep only the most recent messages in the DOM so a long history doesn't
@@ -140,23 +179,36 @@ function ChatWindow({
     );
     const hasEarlier = messages.length > visibleCount;
 
-    // Opening a chat lands at the newest message (and resets the "at bottom" tracking).
+    // Opening a chat lands at the newest message, resets trackers, and focuses the composer (only
+    // on wide screens — avoid popping the mobile keyboard on every open).
     useEffect(() => {
         atBottomRef.current = true;
+        setUnseenBelow(0);
         bottomRef.current?.scrollIntoView();
+        if (typeof window !== "undefined" && window.matchMedia?.("(min-width: 640px)").matches) {
+            inputRef.current?.focus();
+        }
     }, [selectedChatId]);
 
-    // A new message follows to the bottom ONLY if the user is already there; otherwise stay put.
+    // A new message follows to the bottom ONLY if the user is already there; otherwise count it as
+    // unseen so the "↓ N new" button can offer a jump.
     const lastMessageId = messages.length ? messages[messages.length - 1].id : null;
     useEffect(() => {
-        if (atBottomRef.current) bottomRef.current?.scrollIntoView({behavior: "smooth"});
+        const grew = messages.length - prevLenRef.current;
+        prevLenRef.current = messages.length;
+        if (atBottomRef.current) {
+            bottomRef.current?.scrollIntoView({behavior: "smooth"});
+            setUnseenBelow(0);
+        } else if (grew > 0) {
+            setUnseenBelow((n) => n + grew);
+        }
     }, [lastMessageId, messages.length]);
 
     const isChatOpen = !!selectedChatId;
 
     return (
         <main
-            className={`h-full flex flex-col w-full overflow-hidden ${
+            className={`relative h-full flex flex-col w-full overflow-hidden ${
                 !isChatOpen ? "hidden" : "flex"
             }`}
         >
@@ -225,10 +277,20 @@ function ChatWindow({
                         {t("chat.loadEarlier")}
                     </button>
                 )}
-                {shown.map((msg) => (
+                {shown.map((msg, idx) => {
+                    const prev = idx > 0 ? shown[idx - 1] : null;
+                    const showDate = !prev || !sameDay(prev.createdAt, msg.createdAt);
+                    return (
+                    <Fragment key={msg.id}>
+                    {showDate && (
+                        <div className="text-center my-2">
+                            <span className="inline-block text-[11px] text-gray-600 bg-white/70 rounded-full px-3 py-0.5">
+                                {dateLabel(msg.createdAt, t)}
+                            </span>
+                        </div>
+                    )}
                     <div
-                        key={msg.id}
-                        className={`max-w-xs px-4 py-2 rounded-lg text-sm ${
+                        className={`max-w-xs px-4 py-2 rounded-lg text-sm whitespace-pre-wrap break-words ${
                             msg.fromMe
                                 ? "ml-auto bg-teal-950 text-white rounded-br-none"
                                 : "mr-auto bg-white text-teal-950 rounded-bl-none"
@@ -251,7 +313,7 @@ function ChatWindow({
                                 </button>
                             )
                         ) : (
-                            msg.text
+                            linkify(msg.text)
                         )}
                         <span className="ml-2 text-[10px] align-bottom opacity-50">{fmtTime(msg.createdAt)}</span>
                         {msg.fromMe && (() => {
@@ -294,9 +356,21 @@ function ChatWindow({
                             </button>
                         )}
                     </div>
-                ))}
+                    </Fragment>
+                    );
+                })}
                 <div ref={bottomRef}/>
             </div>
+
+            {/* Jump-to-bottom when scrolled up and new messages arrived below */}
+            {unseenBelow > 0 && (
+                <button
+                    onClick={() => scrollToBottom()}
+                    className="absolute right-4 bottom-24 z-20 bg-teal-950 text-white text-xs rounded-full px-3 py-1.5 shadow-lg hover:bg-teal-900"
+                >
+                    ↓ {unseenBelow}
+                </button>
+            )}
 
             {/* Input — replaced by a banner when the pair is blocked (mutual: neither side can send) */}
             {blocked ? (
@@ -323,12 +397,20 @@ function ChatWindow({
                 >
                     📎
                 </button>
-                <input
-                    type="text"
+                <textarea
+                    ref={inputRef}
+                    rows={1}
                     placeholder={t("chat.messagePlaceholder")}
                     value={inputText}
                     onChange={(e) => { setInputText(e.target.value); onTyping?.(); }}
-                    className="flex-1 border rounded-full text-base px-4 py-2 focus:outline-none"
+                    onKeyDown={(e) => {
+                        // Enter sends; Shift+Enter inserts a newline. Ignore IME composition.
+                        if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                            e.preventDefault();
+                            sendMessage(inputText);
+                        }
+                    }}
+                    className="flex-1 border rounded-2xl text-base px-4 py-2 resize-none max-h-32 overflow-y-auto focus:outline-none"
                 />
                 <button
                     onClick={() => sendMessage(inputText)}

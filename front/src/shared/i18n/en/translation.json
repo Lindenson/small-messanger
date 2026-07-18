@@ -60,6 +60,8 @@
     "retry": "Retry",
     "discard": "Discard",
     "loadEarlier": "Show earlier messages",
+    "today": "Today",
+    "yesterday": "Yesterday",
     "deleteChatTitle": "Delete chat",
     "deleteChatConfirm": "Delete history with {{name}}?",
     "delete": "Delete",
