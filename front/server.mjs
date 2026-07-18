@@ -34,6 +34,7 @@ const MIME = {
     ".woff2": "font/woff2",
     ".ttf": "font/ttf",
     ".map": "application/json; charset=utf-8",
+    ".webmanifest": "application/manifest+json; charset=utf-8",
 };
 
 async function sendFile(res, path) {
