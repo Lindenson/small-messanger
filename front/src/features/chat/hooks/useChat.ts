@@ -1,5 +1,5 @@
 import {useCallback, useMemo, useRef, useState, useEffect} from "react";
-import {useDispatch, useSelector} from "react-redux";
+import {useDispatch, useSelector, useStore} from "react-redux";
 import {setSelectedChatId} from "@/features/chat/model/slices/chatUiSlice";
 import type {AppDispatch, RootState} from "@/store/store";
 
@@ -22,6 +22,7 @@ import {MAX_ATTACHMENT_BYTES} from "@/shared/config/chat.ts";
 
 export function useChat() {
     const dispatch = useDispatch<AppDispatch>();
+    const store = useStore<RootState>();
     const {t} = useTranslation();
 
     /* ======================
@@ -97,13 +98,33 @@ export function useChat() {
 
     const deleteMessage = useCallback(async (messageId: string) => {
         if (!selectedChatId) return;
+        // The row may still be the optimistic echo whose id is the TEMPORARY client messageId
+        // (id === clientId until a read-through reconciles it to the server ULID). Deleting by that
+        // temp id would 404. So if it's still optimistic, reconcile the history ONCE here (right
+        // before the delete — the cost is paid only on this rare action, never on every send) and
+        // map the temp id → the real ULID via correlationId (history rows carry it as clientId).
+        let targetId = messageId;
+        const cached = chatApi.endpoints.getChatHistory
+            .select({myId, chatId: selectedChatId})(store.getState())?.data;
+        const row = cached?.find((m) => m.id === messageId);
+        if (row && row.clientId === row.id) {
+            const sub = dispatch(
+                chatApi.endpoints.getChatHistory.initiate({myId, chatId: selectedChatId}, {forceRefetch: true})
+            );
+            try {
+                const res = await sub;
+                const fresh = res.data?.find((m) => m.clientId === messageId);
+                if (fresh) targetId = fresh.id;
+            } catch { /* fall back to the temp id (worst case: the same 404 as before) */ }
+            finally { sub.unsubscribe(); }
+        }
         try {
-            await deleteMessageMut({chatId: selectedChatId, messageId}).unwrap();
+            await deleteMessageMut({chatId: selectedChatId, messageId: targetId}).unwrap();
         } catch (e) {
             const st = (e as { status?: number })?.status;
             toast.error(st === 409 ? t("chat.msgFrozen") : t("chat.msgDeleteError"));
         }
-    }, [selectedChatId, deleteMessageMut, t]);
+    }, [selectedChatId, myId, store, dispatch, deleteMessageMut, t]);
 
     const sendAttachment = useCallback(async (file: File) => {
         if (!selectedChatId || !file) return;
