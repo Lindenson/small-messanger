@@ -351,7 +351,7 @@ function ChatWindow({
                                 </span>
                             );
                         })()}
-                        {onDeleteMessage && (
+                        {onDeleteMessage && msg.fromMe && (
                             <button
                                 onClick={() => onDeleteMessage(msg.id)}
                                 title={t("chat.deleteMessage")}

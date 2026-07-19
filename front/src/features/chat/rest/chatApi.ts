@@ -9,8 +9,13 @@ import {loadHistoryFromDB, saveHistoryToDB} from "@/features/chat/db/db.ts";
 // Wire rows (up to a page) → domain messages, then dedup by clientId||id (guards against any
 // duplicate the server returns; history rows normally carry no clientId — see the dedup note).
 function toMessages(raw: unknown): ChatMessage[] {
-    if (!Array.isArray(raw)) return [];
-    return raw
+    // History endpoint returns { messages: [...] } (newer) or a bare array (older) — accept both.
+    const arr = Array.isArray(raw)
+        ? raw
+        : (raw && typeof raw === "object" && Array.isArray((raw as { messages?: unknown }).messages)
+            ? (raw as { messages: unknown[] }).messages
+            : []);
+    return arr
         .map(parseWireMessage)
         .filter((m): m is NonNullable<typeof m> => Boolean(m))
         .map(wireToChatMessage);
