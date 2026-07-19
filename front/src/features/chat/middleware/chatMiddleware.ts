@@ -85,14 +85,29 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
 
         case "CHAT_ACK": {
             if (!frame.correlationId) break;
-            // Our queued message was accepted → drop it from the outbox immediately, then reconcile
-            // the open history so the optimistic (client-id) row becomes the authoritative server
-            // row. The reconcile is COALESCED per conversation: sending several messages quickly
-            // fires an ACK each, and a full 200-row refetch + zod-parse per ACK is a real cost on
-            // slow devices — one debounced refetch per burst is enough.
+            // Our queued message was accepted → drop it from the outbox. The message is ALREADY in
+            // the open history (inserted optimistically at enqueue, keyed by the client messageId).
+            // We deliberately do NOT re-read the history here: getChatHistory forward-pages the WHOLE
+            // conversation, so a refetch per ACK re-downloaded up to thousands of rows just to swap
+            // one temporary id for the server ULID — a real cost on every send. Instead we reconcile
+            // in place: stamp the echo with the server timestamp so its ✓/✓✓ read-receipt timing
+            // matches the server clock (the list is sorted by createdAt, and server stamps are
+            // monotonic, so ordering is preserved). The temporary client id is upgraded to the real
+            // ULID on the next natural read-through (the reconnect refetch in useChat). The ACK does
+            // NOT carry the stored message's id — its messageId is the ack frame's own id.
             dispatch(markSent(frame.correlationId));
             const chatId = frame.conversationId ?? selectedChatId;
-            if (chatId) scheduleHistoryReload(dispatch, myId, chatId);
+            if (chatId && typeof frame.serverTimestamp === "number") {
+                const at = frame.serverTimestamp;
+                dispatch(
+                    chatApi.util.updateQueryData("getChatHistory", {myId, chatId}, (draft) => {
+                        const m = draft?.find(
+                            (x) => x.clientId === frame.correlationId || x.id === frame.correlationId
+                        );
+                        if (m) m.createdAt = new Date(at);
+                    })
+                );
+            }
             break;
         }
 
@@ -135,25 +150,4 @@ function clearTypingTimer(chatId: string) {
         clearTimeout(t);
         typingTimers.delete(chatId);
     }
-}
-
-// Per-conversation debounce for the post-ACK history reconcile, so a burst of ACKs (rapid sends)
-// collapses into a single force-refetch instead of one per message.
-const HISTORY_RELOAD_DEBOUNCE_MS = 300;
-const historyReloadTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-function scheduleHistoryReload(dispatch: AppDispatch, myId: string, chatId: string) {
-    const prev = historyReloadTimers.get(chatId);
-    if (prev) clearTimeout(prev);
-    historyReloadTimers.set(
-        chatId,
-        setTimeout(() => {
-            historyReloadTimers.delete(chatId);
-            const sub = dispatch(
-                chatApi.endpoints.getChatHistory.initiate({myId, chatId}, {forceRefetch: true})
-            );
-            // Release the transient subscription once settled so it doesn't accumulate.
-            Promise.resolve(sub).finally(() => sub.unsubscribe());
-        }, HISTORY_RELOAD_DEBOUNCE_MS)
-    );
 }
