@@ -16,6 +16,18 @@ const store = configureAppStore(webRTCService);
 // populates asynchronously and flushOutbox re-sends anything pending once the socket connects.
 hydrateStore(store);
 
+// PWA auto-update safety: when a new service worker takes control (autoUpdate → skipWaiting +
+// clientsClaim on a fresh deploy), reload ONCE so the page never keeps running a stale precached
+// bundle. This is what un-traps a client stuck on an old cached build (browser OR installed PWA).
+if ("serviceWorker" in navigator) {
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (reloaded) return;
+        reloaded = true;
+        window.location.reload();
+    });
+}
+
 createRoot(document.getElementById("root")!).render(
     <StrictMode>
         <Provider store={store}>
