@@ -140,6 +140,9 @@ function ChatWindow({
     const selectedChatId = useSelector(
         (state: RootState) => state.chatUi.selectedChatId
     );
+    // Epoch-ms the peer has read up to. Fed by BOTH the live READ_OUT (instant) and the durable
+    // per-conversation receipt from GET /chats (a ULID decoded to ms in useChat) — the latter makes
+    // ✓✓ survive a reload. A sent message shows ✓✓ iff its createdAt <= this.
     const peerReadWatermark = useSelector((state: RootState) =>
         selectedChatId ? (state.chatUi.peerReadWatermarkByChat[selectedChatId] ?? 0) : 0
     );

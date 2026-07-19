@@ -76,11 +76,18 @@ export function buildChatAck(delivered: WireMessage): WireMessage {
     };
 }
 
-/** Read receipt (DELIVERED → READ; pushes READ_OUT to the peer). Same full-frame requirement. */
-export function buildReadIn(conversationId: string, recipientId: string): WireMessage {
+/**
+ * Read receipt (DELIVERED → READ; pushes READ_OUT to the peer). Same full-frame requirement.
+ *
+ * The server records `messageId` verbatim as this reader's read boundary ({client,master}ReadReceipt
+ * in GET /chats), which the PEER uses to render ✓✓. So `messageId` MUST be the id (a server ULID) of
+ * the last message the reader has read — pass `lastReadMessageId`. Falls back to a fresh id only when
+ * none is known (e.g. an empty chat), which records no meaningful boundary but keeps the frame valid.
+ */
+export function buildReadIn(conversationId: string, recipientId: string, lastReadMessageId?: string): WireMessage {
     return {
         type: "READ_IN",
-        messageId: newId(),
+        messageId: lastReadMessageId || newId(),
         recipientId,
         conversationId,
         senderTimestamp: Date.now(),

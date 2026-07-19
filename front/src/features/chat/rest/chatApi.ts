@@ -39,6 +39,9 @@ type Conversation = {
     metadata?: Record<string, string> | null;
     clientBlocked?: boolean;
     masterBlocked?: boolean;
+    // Durable read boundary per side: the messageId (server ULID) each participant last read up to.
+    clientReadReceipt?: string | null;
+    masterReadReceipt?: string | null;
 };
 
 /** Frontend chat-list item derived from a Conversation, relative to the caller. */
@@ -49,6 +52,9 @@ export type ChatSummary = {
     blocked: boolean;        // either side blocked → sending is impossible (block is mutual/terminal)
     blockedByMe: boolean;    // I blocked the peer (I can unblock)
     blockedByPeer: boolean;  // the peer blocked me (I can't unblock their side)
+    // The PEER's durable read boundary (their ...ReadReceipt): the messageId up to which they've read
+    // MY messages. Drives durable ✓✓ (survives reload) — see useChat's watermark-sync effect.
+    peerReadReceipt?: string;
 };
 
 export const chatApi = createApi({
@@ -71,6 +77,8 @@ export const chatApi = createApi({
                     const amClient = c.clientId === arg.myId;
                     const blockedByMe = amClient ? Boolean(c.clientBlocked) : Boolean(c.masterBlocked);
                     const blockedByPeer = amClient ? Boolean(c.masterBlocked) : Boolean(c.clientBlocked);
+                    // The peer's receipt = the OTHER side's read boundary (I'm client → master's).
+                    const peerReadReceipt = (amClient ? c.masterReadReceipt : c.clientReadReceipt) ?? undefined;
                     return {
                         conversationId: c.id,
                         counterpartId: amClient ? c.masterId : c.clientId,
@@ -78,6 +86,7 @@ export const chatApi = createApi({
                         blocked: blockedByMe || blockedByPeer,
                         blockedByMe,
                         blockedByPeer,
+                        peerReadReceipt,
                     };
                 });
             },

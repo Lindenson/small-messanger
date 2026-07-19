@@ -73,7 +73,9 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
             const hidden = typeof document !== "undefined" && document.hidden;
             const active = chatId === selectedChatId && !hidden;
             if (active) {
-                if (frame.senderId) dispatch({type: "ws/send", payload: buildReadIn(chatId, frame.senderId)});
+                // Read boundary = this just-delivered message's id (a server ULID), so the peer's
+                // durable receipt advances to it.
+                if (frame.senderId) dispatch({type: "ws/send", payload: buildReadIn(chatId, frame.senderId, frame.messageId)});
             } else {
                 dispatch(markChatUnread(chatId));
                 // Best-effort notify when not actively viewing.
