@@ -192,7 +192,12 @@ export const chatApi = createApi({
                 body: { ...body, metadata: body.metadata ?? {} },
                 headers: MESSENGER_ADMIN_KEY ? { "X-Admin-Key": MESSENGER_ADMIN_KEY } : undefined,
             }),
-            invalidatesTags: ["Chats"],
+            // Do NOT invalidate "Chats": createChat is idempotent on the pair and may return a
+            // conversation the caller previously soft-deleted (getChats hides it until a message
+            // revives it). AddUser injects the returned conversation into the getChats cache and opens
+            // it so the user can send the first message (which revives it). A "Chats" refetch here
+            // would immediately drop that still-hidden conversation back out of the list — the chat
+            // fails to open and "the list doesn't grow". The manual inject is the source of truth.
         }),
 
         // Block / unblock the peer (mutual; the only terminal messaging stop). Optimistically flip
