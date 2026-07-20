@@ -5,6 +5,7 @@ import {parseWireMessage} from "@/features/chat/model/schema/wireMessage.schema.
 import {MESSENGER_ADMIN_KEY, MESSENGER_API} from "@/shared/config/api.ts";
 import {HISTORY_PAGE_SIZE} from "@/shared/config/chat.ts";
 import {loadHistoryFromDB, saveHistoryToDB} from "@/features/chat/db/db.ts";
+import {setPeerLastReadId} from "@/features/chat/model/slices/chatUiSlice.ts";
 
 // Wire rows (up to a page) → domain messages, then dedup by clientId||id (guards against any
 // duplicate the server returns; history rows normally carry no clientId — see the dedup note).
@@ -52,9 +53,6 @@ export type ChatSummary = {
     blocked: boolean;        // either side blocked → sending is impossible (block is mutual/terminal)
     blockedByMe: boolean;    // I blocked the peer (I can unblock)
     blockedByPeer: boolean;  // the peer blocked me (I can't unblock their side)
-    // The PEER's durable read boundary (their ...ReadReceipt): the messageId up to which they've read
-    // MY messages. Drives durable ✓✓ (survives reload) — see useChat's watermark-sync effect.
-    peerReadReceipt?: string;
 };
 
 export const chatApi = createApi({
@@ -77,8 +75,6 @@ export const chatApi = createApi({
                     const amClient = c.clientId === arg.myId;
                     const blockedByMe = amClient ? Boolean(c.clientBlocked) : Boolean(c.masterBlocked);
                     const blockedByPeer = amClient ? Boolean(c.masterBlocked) : Boolean(c.clientBlocked);
-                    // The peer's receipt = the OTHER side's read boundary (I'm client → master's).
-                    const peerReadReceipt = (amClient ? c.masterReadReceipt : c.clientReadReceipt) ?? undefined;
                     return {
                         conversationId: c.id,
                         counterpartId: amClient ? c.masterId : c.clientId,
@@ -86,7 +82,6 @@ export const chatApi = createApi({
                         blocked: blockedByMe || blockedByPeer,
                         blockedByMe,
                         blockedByPeer,
-                        peerReadReceipt,
                     };
                 });
             },
@@ -103,9 +98,13 @@ export const chatApi = createApi({
             ChatMessage[],
             { myId: string; chatId: string }
         >({
-            async queryFn({chatId}, _api, _extra, baseQuery) {
+            async queryFn({chatId}, api, _extra, baseQuery) {
                 const res = await baseQuery(`/chats/${chatId}/messages?limit=${HISTORY_PAGE_SIZE}`);
                 if (res.error) return {error: res.error};
+                // The response is a HistoryPage envelope { messages, peerLastReadId }. Feed the peer's
+                // read boundary into chatUi so my sent messages render ✓✓ (id <= peerLastReadId).
+                const peerLastReadId = (res.data as { peerLastReadId?: string | null } | undefined)?.peerLastReadId;
+                if (peerLastReadId) api.dispatch(setPeerLastReadId({chatId, lastReadId: peerLastReadId}));
                 return {data: dedupMessages(toMessages(res.data))};
             },
             providesTags: (_r, _e, arg) => [
