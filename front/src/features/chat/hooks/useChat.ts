@@ -43,7 +43,19 @@ export function useChat() {
     /* ======================
        Contacts (chat list from GET /api/chats)
     ====================== */
-    const {contacts, getContactById, getSummary} = useContacts();
+    const {contacts, summaries, getContactById, getSummary, isLoadingIds} = useContacts();
+
+    // Close a chat whose conversation is no longer in the (loaded) list — e.g. a soft-deleted/empty
+    // chat the backend transiently lists then drops on the next getChats refetch. Without this,
+    // ChatWindow stays open (isChatOpen keys off selectedChatId alone) but getContactById/getSummary
+    // return null → no counterpart name and a dead composer, silently with no error.
+    useEffect(() => {
+        if (!selectedChatId || isLoadingIds) return;
+        if (!summaries.some((s) => s.conversationId === selectedChatId)) {
+            dispatch(setSelectedChatId(null));
+        }
+    }, [selectedChatId, summaries, isLoadingIds, dispatch]);
+
     const [blockChat] = useBlockChatMutation();
     const [unblockChat] = useUnblockChatMutation();
     const [deleteMessageMut] = useDeleteMessageMutation();

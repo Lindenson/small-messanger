@@ -206,7 +206,10 @@ function ChatWindow({
         }
     }, [lastMessageId, messages.length]);
 
-    const isChatOpen = !!selectedChatId;
+    // Open the window only when the conversation is actually in the list. Guards against a dangling
+    // selectedChatId (e.g. a soft-deleted chat dropped from getChats on refetch) rendering an empty
+    // window with no counterpart name and a dead composer.
+    const isChatOpen = !!selectedChatId && !!chat;
 
     return (
         <main
