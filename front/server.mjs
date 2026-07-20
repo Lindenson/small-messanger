@@ -44,7 +44,9 @@ const MIME = {
 //  - Content-hashed assets (/assets/*, hashed filenames) are immutable → cache them hard.
 function cacheControlFor(path) {
     const base = path.split(/[/\\]/).pop() || "";
-    if (base === "sw.js" || base.startsWith("workbox-")) return "no-store, no-cache, must-revalidate";
+    // The service worker (any *sw.js — we use app-sw.js) and its workbox runtime must NEVER be
+    // CDN-cached, or a stale SW pins an old precache manifest → chunk-hash mismatch → app crash.
+    if (base.endsWith("sw.js") || base.startsWith("workbox-")) return "no-store, no-cache, must-revalidate";
     const ext = extname(path);
     if (ext === ".html") return "no-store, no-cache, must-revalidate";
     if (ext === ".webmanifest") return "no-cache";

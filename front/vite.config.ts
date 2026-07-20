@@ -15,6 +15,14 @@ export default defineConfig({
       // stuck on a stale cached bundle.
       VitePWA({
         registerType: "autoUpdate",
+        // CDN-cache trap recovery: Cloudflare had cached BOTH the old `sw.js` AND `registerSW.js`
+        // (stale precache manifest → chunk-hash mismatch → app crash) and they couldn't be purged.
+        // Two changes sidestep the CDN entirely:
+        //  - filename: a fresh SW URL the CDN never cached (served no-store so it never gets cached);
+        //  - injectRegister "inline": the SW registration lives INLINE in index.html (which the CDN
+        //    does not cache — DYNAMIC), so there is no cacheable registerSW.js bootstrap to go stale.
+        filename: "app-sw.js",
+        injectRegister: "inline",
         includeAssets: ["hormiga.jpeg"],
         manifest: {
           name: "Hormiga Messenger",
