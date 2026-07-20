@@ -82,6 +82,8 @@ export default function Messenger() {
             <ChatWindow
                 chat={chat.selectedChat}
                 messages={chat.messages}
+                historyError={chat.historyError}
+                onReloadHistory={chat.reloadChatHistory}
                 inputText={chat.messageInput}
                 setInputText={chat.setMessageInput}
                 sendMessage={chat.sendMessage}

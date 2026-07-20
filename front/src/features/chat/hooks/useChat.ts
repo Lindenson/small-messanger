@@ -53,6 +53,7 @@ export function useChat() {
     useEffect(() => {
         if (!selectedChatId || isLoadingIds) return;
         if (!summaries.some((s) => s.conversationId === selectedChatId)) {
+            logger.warn("selected chat not in the loaded list — closing (was a silent dead window)", {selectedChatId});
             dispatch(setSelectedChatId(null));
         }
     }, [selectedChatId, summaries, isLoadingIds, dispatch]);
@@ -66,7 +67,7 @@ export function useChat() {
 
     // Declared before the handlers that reference them (reloadChatHistory/clearChat/markRead).
     const {unreadChats, markRead} = useUnreadChats();
-    const {messages, reloadChatHistory, clearChat} = useChatMessages();
+    const {messages, isError: historyError, reloadChatHistory, clearChat} = useChatMessages();
 
     const filteredChats = useMemo(
         () =>
@@ -257,14 +258,20 @@ export function useChat() {
     const sendMessage = useCallback((text: string) => {
         if (!selectedChatId || !text.trim()) return;
         const summary = getSummary(selectedChatId);
-        if (!summary) return;
+        if (!summary) {
+            // Don't fail silently: if we can't resolve the conversation we can't send. Log it and
+            // tell the user instead of the click doing nothing.
+            logger.warn("sendMessage: no summary for selected chat — cannot send", {selectedChatId});
+            toast.error(t("chat.msgSendError", {defaultValue: "Couldn't send — reopen the chat"}));
+            return;
+        }
         setMessageInput("");
         chatMessagesService.enqueueChatMessage(
             dispatch, text, myId, selectedChatId, summary.counterpartId, summary.orderId
         );
         // A new message is naturally "not read yet": its createdAt is above the peer's read
         // watermark, so it renders ✓ until a READ_OUT advances the watermark past it. No global reset.
-    }, [selectedChatId, getSummary, myId, dispatch]);
+    }, [selectedChatId, getSummary, myId, dispatch, t]);
 
     const deleteChat = useCallback(async () => {
         await clearChat();
@@ -333,6 +340,8 @@ export function useChat() {
         deleteChat,
         unreadChats,
         messages,
+        historyError,
+        reloadChatHistory,
         outboxStatusById,
         retryMessage,
         discardMessage,

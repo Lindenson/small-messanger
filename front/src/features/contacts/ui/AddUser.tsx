@@ -115,11 +115,12 @@ export default function AddContactPage() {
             navigate("/");
         } catch (err) {
             const status = (err as {status?: number})?.status;
-            logger.error("createChat failed", err as Error);
+            logger.error("createChat failed", {status, err});
             toast.error(
-                status === 403 ? t("addUser.createForbidden")
-                    : status === 400 ? t("addUser.createInvalid")
-                        : t("addUser.createError")
+                status === 409 ? t("addUser.createBlocked")
+                    : status === 403 ? t("addUser.createForbidden")
+                        : status === 400 ? t("addUser.createInvalid")
+                            : t("addUser.createError")
             );
         }
     }

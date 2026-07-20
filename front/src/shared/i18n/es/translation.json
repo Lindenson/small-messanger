@@ -5,13 +5,11 @@
     "loading": "Cargando...",
     "showMore": "Mostrar más"
   },
-
   "language": {
     "label": "Idioma",
     "es": "ES",
     "en": "EN"
   },
-
   "auth": {
     "login": "Iniciar sesión",
     "register": "Registrarse",
@@ -31,7 +29,6 @@
     "loggingOut": "Saliendo…",
     "sessionExpired": "Sesión expirada, inicia sesión de nuevo"
   },
-
   "chat": {
     "logout": "Salir",
     "addContact": "Añadir contacto",
@@ -74,9 +71,10 @@
     "fileError": "No se pudo enviar el archivo",
     "fileTooLarge": "Archivo demasiado grande (máx {{mb}} MB)",
     "uploading": "Subiendo… {{p}}%",
-    "downloadError": "No se pudo descargar"
+    "downloadError": "No se pudo descargar",
+    "msgSendError": "No se pudo enviar — reabre el chat",
+    "historyLoadError": "No se pudieron cargar los mensajes"
   },
-
   "addUser": {
     "title": "Nuevo chat",
     "searchPlaceholder": "Buscar con quién chatear (nombre, email, id)",
@@ -90,9 +88,9 @@
     "createForbidden": "Se requiere X-Admin-Key válido para crear chats",
     "createInvalid": "Datos inválidos",
     "createError": "No se pudo crear el chat",
-    "verified": "verificado"
+    "verified": "verificado",
+    "createBlocked": "Este contacto está bloqueado — desbloquéalo para chatear"
   },
-
   "call": {
     "incoming": "Llamada entrante",
     "callingYou": "Te está llamando {{name}}",

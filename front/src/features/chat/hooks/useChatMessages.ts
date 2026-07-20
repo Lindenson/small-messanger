@@ -1,4 +1,4 @@
-import {useCallback, useMemo} from "react";
+import {useCallback, useEffect, useMemo} from "react";
 import {useDispatch, useSelector} from "react-redux";
 import {skipToken} from "@reduxjs/toolkit/query/react";
 
@@ -7,6 +7,7 @@ import {toChatMessageView} from "@/features/chat/model/mapper";
 import type {AppDispatch, RootState} from "@/store/store";
 import type {ChatMessage} from "@/features/chat/model/schema/domainChatMessage.schema";
 import {chatMessagesService} from "@/features/chat/model/services/chatMessages.service";
+import {logger} from "@/shared/logger/logger";
 
 export function useChatMessages() {
     const myId = useSelector((state: RootState) => state.user.id);
@@ -22,9 +23,16 @@ export function useChatMessages() {
     /* ======================
        RTK Query: history
     ====================== */
-    const {data = [], isLoading} = chatApi.useGetChatHistoryQuery(
+    const {data = [], isLoading, isError, error} = chatApi.useGetChatHistoryQuery(
         selectedChatId ? {myId, chatId: selectedChatId} : skipToken
     );
+
+    // Surface, don't swallow: a server error loading history used to fall back to an empty list,
+    // indistinguishable from a genuinely empty chat and with no log. Log it and expose isError so
+    // the UI can show a retryable error state instead of a silent "empty" window.
+    useEffect(() => {
+        if (isError) logger.error("getChatHistory failed", {chatId: selectedChatId, error});
+    }, [isError, error, selectedChatId]);
 
     const [deleteHistory] = chatApi.useDeleteChatHistoryMutation();
 
@@ -76,6 +84,7 @@ export function useChatMessages() {
     return {
         messages,
         isLoading,
+        isError,
         reloadChatHistory,
         handleIncomingMessage,
         clearChat,

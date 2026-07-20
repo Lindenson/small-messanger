@@ -5,13 +5,11 @@
     "loading": "Loading...",
     "showMore": "Show more"
   },
-
   "language": {
     "label": "Language",
     "es": "ES",
     "en": "EN"
   },
-
   "auth": {
     "login": "Login",
     "register": "Register",
@@ -31,7 +29,6 @@
     "loggingOut": "Logging out…",
     "sessionExpired": "Session expired, please log in again"
   },
-
   "chat": {
     "logout": "Log out",
     "addContact": "Add contact",
@@ -74,9 +71,10 @@
     "fileError": "Could not send the file",
     "fileTooLarge": "File too large (max {{mb}} MB)",
     "uploading": "Uploading… {{p}}%",
-    "downloadError": "Could not download"
+    "downloadError": "Could not download",
+    "msgSendError": "Couldn't send — reopen the chat",
+    "historyLoadError": "Couldn't load messages"
   },
-
   "addUser": {
     "title": "New chat",
     "searchPlaceholder": "Search who to chat with (name, email, id)",
@@ -90,9 +88,9 @@
     "createForbidden": "A valid X-Admin-Key is required to create chats",
     "createInvalid": "Invalid data",
     "createError": "Could not create the chat",
-    "verified": "verified"
+    "verified": "verified",
+    "createBlocked": "This contact is blocked — unblock to chat"
   },
-
   "call": {
     "incoming": "Incoming call",
     "callingYou": "{{name}} is calling you",

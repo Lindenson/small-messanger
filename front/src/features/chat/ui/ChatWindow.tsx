@@ -92,6 +92,8 @@ interface ChatMessageView {
 interface ChatWindowProps {
     chat: Contact | null;
     messages: ChatMessageView[];
+    historyError?: boolean;
+    onReloadHistory?: () => void;
     inputText: string;
     setInputText: (value: string) => void;
     sendMessage: (text: string) => void;
@@ -115,6 +117,8 @@ interface ChatWindowProps {
 function ChatWindow({
                         chat,
                         messages,
+                        historyError,
+                        onReloadHistory,
                         inputText,
                         setInputText,
                         sendMessage,
@@ -322,6 +326,17 @@ function ChatWindow({
             {/* Messages */}
             <div ref={listRef} onScroll={onListScroll}
                  className="flex-1 overflow-y-auto overscroll-contain p-4 bg-gray-300">
+                {/* History failed to load (server error) — show it, don't render a silent empty chat. */}
+                {historyError && (
+                    <div className="mx-auto my-2 max-w-xs text-center text-sm bg-red-100 text-red-800 rounded-lg px-3 py-2">
+                        {t("chat.historyLoadError", {defaultValue: "Couldn't load messages"})}
+                        {onReloadHistory && (
+                            <button onClick={() => onReloadHistory()} className="ml-2 underline font-medium">
+                                {t("chat.retry")}
+                            </button>
+                        )}
+                    </div>
+                )}
                 {hasEarlier && (
                     <button
                         onClick={showEarlier}
