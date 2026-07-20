@@ -1,9 +1,10 @@
-import {Fragment, memo, useEffect, useMemo, useRef, useState} from "react";
+import {Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from "react";
 import {useDispatch, useSelector} from "react-redux";
 import {useTranslation} from "react-i18next";
-import type {RootState} from "@/store/store";
+import type {AppDispatch, RootState} from "@/store/store";
 import type {Contact} from "@/features/contacts/model/schema/domainContract.schema.ts";
 import {setSelectedChatId} from "@/features/chat/model/slices/chatUiSlice.ts";
+import {loadOlderHistory} from "@/features/chat/thunk/loadOlderHistory.ts";
 import {MESSAGE_WINDOW_INITIAL, MESSAGE_WINDOW_STEP} from "@/shared/config/chat.ts";
 
 // Local HH:mm for a message timestamp (epoch ms).
@@ -135,13 +136,16 @@ function ChatWindow({
                     }: ChatWindowProps) {
     const {t} = useTranslation();
     const fileRef = useRef<HTMLInputElement>(null);
-    const dispatch = useDispatch();
+    const dispatch = useDispatch<AppDispatch>();
 
     const selectedChatId = useSelector(
         (state: RootState) => state.chatUi.selectedChatId
     );
-    const peerReadWatermark = useSelector((state: RootState) =>
-        selectedChatId ? (state.chatUi.peerReadWatermarkByChat[selectedChatId] ?? 0) : 0
+    // The message id (server ULID) the peer has read up to. Server-driven: the history response
+    // (HistoryPage.peerLastReadId) and the live READ_OUT frame (its correlationId) both feed it via
+    // chatUi. A sent message shows ✓✓ iff its id <= this (ULID lexicographic == chronological).
+    const peerLastReadId = useSelector((state: RootState) =>
+        selectedChatId ? (state.chatUi.peerLastReadIdByChat[selectedChatId] ?? "") : ""
     );
     const peerTyping = useSelector((state: RootState) =>
         selectedChatId ? !!state.chatUi.typingByChat[selectedChatId] : false
@@ -172,14 +176,54 @@ function ChatWindow({
     // reconcile hundreds of bubbles. "Show earlier" reveals another step. Reset to the tail when
     // switching chats.
     const [visibleCount, setVisibleCount] = useState(MESSAGE_WINDOW_INITIAL);
+    // reachedStart: the server has no older page (loadOlderHistory returned 0). loadingOlder: a
+    // network fetch is in flight. anchorRef: distance-from-bottom captured before revealing/loading
+    // older, so we can restore the viewport after the taller list renders (no scroll jump).
+    const [reachedStart, setReachedStart] = useState(false);
+    const [loadingOlder, setLoadingOlder] = useState(false);
+    const anchorRef = useRef<number | null>(null);
+    const prevLastIdRef = useRef<string | null>(null);
     useEffect(() => {
         setVisibleCount(MESSAGE_WINDOW_INITIAL);
+        setReachedStart(false);
     }, [selectedChatId]);
     const shown = useMemo(
         () => (messages.length > visibleCount ? messages.slice(messages.length - visibleCount) : messages),
         [messages, visibleCount]
     );
-    const hasEarlier = messages.length > visibleCount;
+    // More to reveal: either older messages already loaded in memory, or the server may have more.
+    const hasEarlierInMemory = messages.length > visibleCount;
+    const hasEarlier = hasEarlierInMemory || !reachedStart;
+
+    // "Show earlier": first reveal in-memory older messages (windowing); once those run out, pull an
+    // older page from the server (`?before=`) and reveal it too. Capture the scroll anchor first.
+    const showEarlier = useCallback(async () => {
+        if (loadingOlder) return;
+        const el = listRef.current;
+        anchorRef.current = el ? el.scrollHeight - el.scrollTop : null;
+        if (hasEarlierInMemory) {
+            setVisibleCount((c) => c + MESSAGE_WINDOW_STEP);
+            return;
+        }
+        if (reachedStart || !selectedChatId) return;
+        setLoadingOlder(true);
+        try {
+            const n = await dispatch(loadOlderHistory(selectedChatId));
+            if (!n) setReachedStart(true);
+            else setVisibleCount((c) => c + n); // reveal the freshly-prepended older messages
+        } finally {
+            setLoadingOlder(false);
+        }
+    }, [loadingOlder, hasEarlierInMemory, reachedStart, selectedChatId, dispatch]);
+
+    // Restore the viewport after older messages render at the top: keep the same distance from the
+    // bottom so the content the user was reading stays put (no jump).
+    useLayoutEffect(() => {
+        if (anchorRef.current == null) return;
+        const el = listRef.current;
+        if (el) el.scrollTop = el.scrollHeight - anchorRef.current;
+        anchorRef.current = null;
+    }, [shown.length]);
 
     // Opening a chat lands at the newest message, resets trackers, and focuses the composer (only
     // on wide screens — avoid popping the mobile keyboard on every open).
@@ -192,12 +236,16 @@ function ChatWindow({
         }
     }, [selectedChatId]);
 
-    // A new message follows to the bottom ONLY if the user is already there; otherwise count it as
-    // unseen so the "↓ N new" button can offer a jump.
+    // Follow to the bottom / count "unseen" ONLY when a message is APPENDED (newest id changes) —
+    // never when older messages are PREPENDED (scroll-up load grows length but the last id is same),
+    // which must not yank the view or inflate the "↓ N new" badge.
     const lastMessageId = messages.length ? messages[messages.length - 1].id : null;
     useEffect(() => {
         const grew = messages.length - prevLenRef.current;
+        const appended = lastMessageId !== prevLastIdRef.current;
         prevLenRef.current = messages.length;
+        prevLastIdRef.current = lastMessageId;
+        if (!appended) return;                       // prepend (older page) → leave scroll untouched
         if (atBottomRef.current) {
             bottomRef.current?.scrollIntoView({behavior: "smooth"});
             setUnseenBelow(0);
@@ -276,10 +324,11 @@ function ChatWindow({
                  className="flex-1 overflow-y-auto overscroll-contain p-4 bg-gray-300">
                 {hasEarlier && (
                     <button
-                        onClick={() => setVisibleCount((c) => c + MESSAGE_WINDOW_STEP)}
-                        className="mx-auto block text-sm text-teal-800 hover:underline py-1"
+                        onClick={showEarlier}
+                        disabled={loadingOlder}
+                        className="mx-auto block text-sm text-teal-800 hover:underline py-1 disabled:opacity-50"
                     >
-                        {t("chat.loadEarlier")}
+                        {loadingOlder ? t("loading") : t("chat.loadEarlier")}
                     </button>
                 )}
                 {shown.map((msg, idx) => {
@@ -345,8 +394,9 @@ function ChatWindow({
                                     <span className="ml-2 text-[10px] align-bottom opacity-70" title={t("chat.sending")}>🕐</span>
                                 );
                             }
-                            // Per-message read state: read iff this message is at/below the peer's watermark.
-                            const isRead = msg.createdAt <= peerReadWatermark;
+                            // Per-message read state: read iff this message's id is at/below the peer's
+                            // read boundary (both server ULIDs; string compare == chronological).
+                            const isRead = !!peerLastReadId && msg.id <= peerLastReadId;
                             return (
                                 <span className="ml-2 text-[10px] align-bottom opacity-70"
                                       title={isRead ? t("chat.read") : t("chat.sent")}>

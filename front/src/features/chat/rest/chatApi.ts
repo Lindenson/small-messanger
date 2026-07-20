@@ -3,8 +3,9 @@ import {type ChatMessage} from "@/features/chat/model/schema/domainChatMessage.s
 import {wireToChatMessage} from "@/features/chat/model/mapper.ts";
 import {parseWireMessage} from "@/features/chat/model/schema/wireMessage.schema.ts";
 import {MESSENGER_ADMIN_KEY, MESSENGER_API} from "@/shared/config/api.ts";
-import {HISTORY_MAX_PAGES, HISTORY_PAGE_SIZE} from "@/shared/config/chat.ts";
+import {HISTORY_PAGE_SIZE} from "@/shared/config/chat.ts";
 import {loadHistoryFromDB, saveHistoryToDB} from "@/features/chat/db/db.ts";
+import {setPeerLastReadId} from "@/features/chat/model/slices/chatUiSlice.ts";
 
 // Wire rows (up to a page) → domain messages, then dedup by clientId||id (guards against any
 // duplicate the server returns; history rows normally carry no clientId — see the dedup note).
@@ -39,6 +40,9 @@ type Conversation = {
     metadata?: Record<string, string> | null;
     clientBlocked?: boolean;
     masterBlocked?: boolean;
+    // Durable read boundary per side: the messageId (server ULID) each participant last read up to.
+    clientReadReceipt?: string | null;
+    masterReadReceipt?: string | null;
 };
 
 /** Frontend chat-list item derived from a Conversation, relative to the caller. */
@@ -87,33 +91,21 @@ export const chatApi = createApi({
         // --------------------
         // Conversation history (cursor-paginated). chatId === conversationId.
         // --------------------
-        // Forward-paged history: the backend only serves message_id > since (ASC, LIMIT), so a
-        // single request returns the OLDEST page. We page forward (cursor = last messageId) and
-        // accumulate the full history, capped at HISTORY_MAX_PAGES. Returns the same ChatMessage[]
-        // shape as before, so consumers are unchanged; rendering is windowed downstream.
+        // Loads the NEWEST page (backend default = latest `limit`, ASC). Older pages are pulled on
+        // demand by the loadOlderHistory thunk (`?before=<oldest>`), which prepends into this cache;
+        // reconnect catch-up appends newer via `?since=`. Rendering is windowed downstream.
         getChatHistory: builder.query<
             ChatMessage[],
             { myId: string; chatId: string }
         >({
-            async queryFn({chatId}, _api, _extra, baseQuery) {
-                const all: ChatMessage[] = [];
-                let since: string | undefined;
-                for (let page = 0; page < HISTORY_MAX_PAGES; page++) {
-                    const q = new URLSearchParams({limit: String(HISTORY_PAGE_SIZE)});
-                    if (since) q.set("since", since);
-                    const res = await baseQuery(`/chats/${chatId}/messages?${q.toString()}`);
-                    if (res.error) {
-                        // Tolerate a mid-loop failure: return what we have (first-page error surfaces).
-                        return all.length ? {data: dedupMessages(all)} : {error: res.error};
-                    }
-                    const rows = toMessages(res.data);
-                    all.push(...rows);
-                    if (rows.length < HISTORY_PAGE_SIZE) break;          // reached the last (short) page
-                    const cursor = rows[rows.length - 1]?.id;            // messageId == ULID cursor
-                    if (!cursor || cursor === since) break;              // no progress → stop
-                    since = cursor;
-                }
-                return {data: dedupMessages(all)};
+            async queryFn({chatId}, api, _extra, baseQuery) {
+                const res = await baseQuery(`/chats/${chatId}/messages?limit=${HISTORY_PAGE_SIZE}`);
+                if (res.error) return {error: res.error};
+                // The response is a HistoryPage envelope { messages, peerLastReadId }. Feed the peer's
+                // read boundary into chatUi so my sent messages render ✓✓ (id <= peerLastReadId).
+                const peerLastReadId = (res.data as { peerLastReadId?: string | null } | undefined)?.peerLastReadId;
+                if (peerLastReadId) api.dispatch(setPeerLastReadId({chatId, lastReadId: peerLastReadId}));
+                return {data: dedupMessages(toMessages(res.data))};
             },
             providesTags: (_r, _e, arg) => [
                 {type: "Chat", id: arg.chatId},
@@ -204,7 +196,9 @@ export const chatApi = createApi({
         // MY block flag in the getChats cache so the UI reacts instantly; undo on failure.
         blockChat: builder.mutation<void, { chatId: string }>({
             query: ({ chatId }) => ({ url: `/chats/${chatId}/block`, method: "POST" }),
-            invalidatesTags: ["Chats"],
+            // No "Chats" invalidation: the optimistic patch already flips the flag, and a refetch here
+            // would drop a soft-deleted-but-transiently-listed conversation out of the list — the
+            // blocked chat would vanish and you could no longer unblock it.
             async onQueryStarted({ chatId }, { dispatch, getState, queryFulfilled }) {
                 const myId = (getState() as { user?: { id?: string } })?.user?.id;
                 if (!myId) return;
@@ -217,7 +211,8 @@ export const chatApi = createApi({
         }),
         unblockChat: builder.mutation<void, { chatId: string }>({
             query: ({ chatId }) => ({ url: `/chats/${chatId}/block`, method: "DELETE" }),
-            invalidatesTags: ["Chats"],
+            // No "Chats" invalidation (see blockChat): the optimistic patch flips the flag; a refetch
+            // could drop a transiently-listed soft-deleted conversation from the list.
             async onQueryStarted({ chatId }, { dispatch, getState, queryFulfilled }) {
                 const myId = (getState() as { user?: { id?: string } })?.user?.id;
                 if (!myId) return;
@@ -229,12 +224,16 @@ export const chatApi = createApi({
             },
         }),
 
-        // Delete a single message (only if not frozen → 409).
-        deleteMessage: builder.mutation<void, { chatId: string; messageId: string }>({
-            query: ({ chatId, messageId }) => ({
-                url: `/chats/${chatId}/messages/${messageId}`,
-                method: "DELETE",
-            }),
+        // Delete a single message by BOTH ids (only if not frozen → 409). The backend matches on the
+        // server ULID (backendId) if present, else the original client id (clientMessageId) — so a
+        // just-sent message that hasn't reconciled its id yet still deletes without a history refetch.
+        deleteMessage: builder.mutation<void, { chatId: string; backendId?: string; clientMessageId?: string }>({
+            query: ({ chatId, backendId, clientMessageId }) => {
+                const q = new URLSearchParams();
+                if (backendId) q.set("backendId", backendId);
+                if (clientMessageId) q.set("clientMessageId", clientMessageId);
+                return { url: `/chats/${chatId}/messages?${q.toString()}`, method: "DELETE" };
+            },
             invalidatesTags: (_r, _e, arg) => [{ type: "Chat", id: arg.chatId }],
         }),
 
