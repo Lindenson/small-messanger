@@ -99,33 +99,22 @@ export function useChat() {
 
     const deleteMessage = useCallback(async (messageId: string) => {
         if (!selectedChatId) return;
-        // The row may still be the optimistic echo whose id is the TEMPORARY client messageId
-        // (id === clientId until a read-through reconciles it to the server ULID). Deleting by that
-        // temp id would 404. So if it's still optimistic, reconcile the history ONCE here (right
-        // before the delete — the cost is paid only on this rare action, never on every send) and
-        // map the temp id → the real ULID via correlationId (history rows carry it as clientId).
-        let targetId = messageId;
-        const cached = chatApi.endpoints.getChatHistory
-            .select({myId, chatId: selectedChatId})(store.getState())?.data;
-        const row = cached?.find((m) => m.id === messageId);
-        if (row && row.clientId === row.id) {
-            const sub = dispatch(
-                chatApi.endpoints.getChatHistory.initiate({myId, chatId: selectedChatId}, {forceRefetch: true})
-            );
-            try {
-                const res = await sub;
-                const fresh = res.data?.find((m) => m.clientId === messageId);
-                if (fresh) targetId = fresh.id;
-            } catch { /* fall back to the temp id (worst case: the same 404 as before) */ }
-            finally { sub.unsubscribe(); }
-        }
+        // Send BOTH ids; the backend matches on whichever it can. No refetch: even if this row is
+        // still the optimistic echo under a temporary client id (server ULID not yet reconciled from
+        // the ACK), the backend resolves it via clientMessageId.
+        const row = chatApi.endpoints.getChatHistory
+            .select({myId, chatId: selectedChatId})(store.getState())?.data
+            ?.find((m) => m.id === messageId);
+        const backendId = isUlid(messageId) ? messageId : (row && isUlid(row.id) ? row.id : undefined);
+        // The original client id: the row's clientId, or the passed id itself if it's the temp id.
+        const clientMessageId = row?.clientId ?? (isUlid(messageId) ? undefined : messageId);
         try {
-            await deleteMessageMut({chatId: selectedChatId, messageId: targetId}).unwrap();
+            await deleteMessageMut({chatId: selectedChatId, backendId, clientMessageId}).unwrap();
         } catch (e) {
             const st = (e as { status?: number })?.status;
             toast.error(st === 409 ? t("chat.msgFrozen") : t("chat.msgDeleteError"));
         }
-    }, [selectedChatId, myId, store, dispatch, deleteMessageMut, t]);
+    }, [selectedChatId, myId, store, deleteMessageMut, t]);
 
     const sendAttachment = useCallback(async (file: File) => {
         if (!selectedChatId || !file) return;

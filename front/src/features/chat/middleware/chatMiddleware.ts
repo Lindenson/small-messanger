@@ -99,14 +99,19 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
             // NOT carry the stored message's id — its messageId is the ack frame's own id.
             dispatch(markSent(frame.correlationId));
             const chatId = frame.conversationId ?? selectedChatId;
-            if (chatId && typeof frame.serverTimestamp === "number") {
-                const at = frame.serverTimestamp;
+            const at = frame.serverTimestamp;
+            const serverId = frame.serverMessageId;   // the STORED ULID (backend now returns it)
+            if (chatId && (typeof at === "number" || serverId)) {
                 dispatch(
                     chatApi.util.updateQueryData("getChatHistory", {myId, chatId}, (draft) => {
                         const m = draft?.find(
                             (x) => x.clientId === frame.correlationId || x.id === frame.correlationId
                         );
-                        if (m) m.createdAt = new Date(at);
+                        if (!m) return;
+                        // Reconcile the optimistic echo: swap its temporary client id for the real
+                        // server ULID (so delete/read-boundary work by id), and stamp server time.
+                        if (serverId) m.id = serverId;
+                        if (typeof at === "number") m.createdAt = new Date(at);
                     })
                 );
             }

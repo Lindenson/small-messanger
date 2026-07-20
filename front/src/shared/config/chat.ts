@@ -4,12 +4,11 @@
 export const MESSAGE_WINDOW_INITIAL = 60;
 export const MESSAGE_WINDOW_STEP = 60;
 
-// History is fetched by forward pages (cursor = last messageId): the backend only supports
-// message_id > since (ASC), so a single `limit` request returns the OLDEST page and would hide
-// newer messages on long chats. We page forward and accumulate the whole history, capped at
-// HISTORY_MAX_PAGES to bound pathological loads. Rendering is still windowed (MESSAGE_WINDOW_*).
+// History pagination. The backend serves the NEWEST page by default (or `?before=<id>` for the
+// page immediately older, ASC), plus `?since=<id>` for a forward reconnect catch-up. So we load
+// the latest page on open and pull older pages on demand (scroll-up / "show earlier"). Rendering
+// is windowed on top of the loaded set (MESSAGE_WINDOW_*).
 export const HISTORY_PAGE_SIZE = 200;
-export const HISTORY_MAX_PAGES = 25;
 
 // Max attachment size accepted client-side (before requesting a presigned upload URL).
 export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024; // 25 MB
