@@ -99,22 +99,21 @@ export function useChat() {
 
     const deleteMessage = useCallback(async (messageId: string) => {
         if (!selectedChatId) return;
-        // Send BOTH ids; the backend matches on whichever it can. No refetch: even if this row is
-        // still the optimistic echo under a temporary client id (server ULID not yet reconciled from
-        // the ACK), the backend resolves it via clientMessageId.
-        const row = chatApi.endpoints.getChatHistory
-            .select({myId, chatId: selectedChatId})(store.getState())?.data
-            ?.find((m) => m.id === messageId);
-        const backendId = isUlid(messageId) ? messageId : (row && isUlid(row.id) ? row.id : undefined);
-        // The original client id: the row's clientId, or the passed id itself if it's the temp id.
-        const clientMessageId = row?.clientId ?? (isUlid(messageId) ? undefined : messageId);
+        // The backend deletes by EITHER id, so send the one we have — no cache read, no refetch.
+        // A ULID is the server id (backendId); anything else is still the temporary client id
+        // (clientMessageId, which the backend also resolves). Reconciled rows carry the ULID already.
+        const server = isUlid(messageId);
         try {
-            await deleteMessageMut({chatId: selectedChatId, backendId, clientMessageId}).unwrap();
+            await deleteMessageMut({
+                chatId: selectedChatId,
+                backendId: server ? messageId : undefined,
+                clientMessageId: server ? undefined : messageId,
+            }).unwrap();
         } catch (e) {
             const st = (e as { status?: number })?.status;
             toast.error(st === 409 ? t("chat.msgFrozen") : t("chat.msgDeleteError"));
         }
-    }, [selectedChatId, myId, store, deleteMessageMut, t]);
+    }, [selectedChatId, deleteMessageMut, t]);
 
     const sendAttachment = useCallback(async (file: File) => {
         if (!selectedChatId || !file) return;
