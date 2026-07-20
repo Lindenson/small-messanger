@@ -37,10 +37,26 @@ const MIME = {
     ".webmanifest": "application/manifest+json; charset=utf-8",
 };
 
+// Cache policy is critical for a PWA behind a CDN (Cloudflare):
+//  - sw.js / the workbox runtime / index.html / manifest MUST NOT be cached, or a stale service
+//    worker keeps precaching an OLD build whose chunk hashes no longer match the fresh index.html
+//    → the app loads new HTML but the SW serves old chunks → runtime crashes. Serve them no-store.
+//  - Content-hashed assets (/assets/*, hashed filenames) are immutable → cache them hard.
+function cacheControlFor(path) {
+    const base = path.split(/[/\\]/).pop() || "";
+    if (base === "sw.js" || base.startsWith("workbox-")) return "no-store, no-cache, must-revalidate";
+    const ext = extname(path);
+    if (ext === ".html") return "no-store, no-cache, must-revalidate";
+    if (ext === ".webmanifest") return "no-cache";
+    if (path.includes(`${"/"}assets${"/"}`)) return "public, max-age=31536000, immutable";
+    return "no-cache";
+}
+
 async function sendFile(res, path) {
     const body = await readFile(path);
     res.writeHead(200, {
         "Content-Type": MIME[extname(path)] || "application/octet-stream",
+        "Cache-Control": cacheControlFor(path),
     });
     res.end(body);
 }
