@@ -8,6 +8,7 @@ import {markChatUnread, setPeerReadWatermark, setTyping} from "@/features/chat/m
 import {markSent} from "@/features/chat/model/slices/outboxSlice.ts";
 import {logger} from "@/shared/logger/logger.ts";
 import {playNotificationSound, showDesktopNotification} from "@/shared/sound/notify.ts";
+import {ulidTimeMs} from "@/shared/ulid/ulid.ts";
 import i18n from "@/shared/i18n";
 
 // How long a "peer is typing" indicator lingers before auto-clearing if no follow-up frame.
@@ -119,10 +120,13 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
         }
 
         case "READ_OUT": {
-            // The peer read up to now → advance the read watermark; each of my messages then shows
-            // ✓✓ iff its createdAt <= watermark (per-message, not a single conversation flag).
+            // The peer read up to a boundary message → advance the read watermark; each of my
+            // messages then shows ✓✓ iff its createdAt <= watermark. The boundary ULID rides in
+            // correlationId ("read up to X"); decode its embedded ms for an exact, durable-matching
+            // watermark. Fall back to the frame's server time if it's somehow not a ULID.
             if (frame.conversationId) {
-                const at = frame.serverTimestamp ?? Date.now();
+                const fromBoundary = ulidTimeMs(frame.correlationId);
+                const at = Number.isFinite(fromBoundary) ? fromBoundary : (frame.serverTimestamp ?? Date.now());
                 dispatch(setPeerReadWatermark({chatId: frame.conversationId, at}));
             }
             break;

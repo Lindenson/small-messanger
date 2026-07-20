@@ -88,7 +88,8 @@ export function buildChatAck(delivered: WireMessage): WireMessage {
 export function buildReadIn(conversationId: string, recipientId: string, lastReadMessageId?: string): WireMessage {
     return {
         type: "READ_IN",
-        messageId: lastReadMessageId || newId(),
+        messageId: newId(),                       // a fresh event id for the frame
+        correlationId: lastReadMessageId,          // the read boundary — backend reads lastReadId HERE
         recipientId,
         conversationId,
         senderTimestamp: Date.now(),
