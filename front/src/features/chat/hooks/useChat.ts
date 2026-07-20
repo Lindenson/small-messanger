@@ -1,8 +1,7 @@
 import {useCallback, useMemo, useRef, useState, useEffect} from "react";
 import {useDispatch, useSelector, useStore} from "react-redux";
-import {setSelectedChatId, setPeerReadWatermark} from "@/features/chat/model/slices/chatUiSlice";
+import {setSelectedChatId} from "@/features/chat/model/slices/chatUiSlice";
 import type {AppDispatch, RootState} from "@/store/store";
-import {isUlid, ulidTimeMs} from "@/shared/ulid/ulid.ts";
 
 import {useChatMessages} from "./useChatMessages";
 import {useUnreadChats} from "./useUnreadChats";
@@ -44,7 +43,7 @@ export function useChat() {
     /* ======================
        Contacts (chat list from GET /api/chats)
     ====================== */
-    const {contacts, summaries, getContactById, getSummary} = useContacts();
+    const {contacts, getContactById, getSummary} = useContacts();
     const [blockChat] = useBlockChatMutation();
     const [unblockChat] = useUnblockChatMutation();
     const [deleteMessageMut] = useDeleteMessageMutation();
@@ -99,21 +98,33 @@ export function useChat() {
 
     const deleteMessage = useCallback(async (messageId: string) => {
         if (!selectedChatId) return;
-        // The backend deletes by EITHER id, so send the one we have — no cache read, no refetch.
-        // A ULID is the server id (backendId); anything else is still the temporary client id
-        // (clientMessageId, which the backend also resolves). Reconciled rows carry the ULID already.
-        const server = isUlid(messageId);
+        // The row may still be the optimistic echo whose id is the TEMPORARY client messageId
+        // (id === clientId until a read-through reconciles it to the server ULID). Deleting by that
+        // temp id would 404. So if it's still optimistic, reconcile the history ONCE here (right
+        // before the delete — the cost is paid only on this rare action, never on every send) and
+        // map the temp id → the real ULID via correlationId (history rows carry it as clientId).
+        let targetId = messageId;
+        const cached = chatApi.endpoints.getChatHistory
+            .select({myId, chatId: selectedChatId})(store.getState())?.data;
+        const row = cached?.find((m) => m.id === messageId);
+        if (row && row.clientId === row.id) {
+            const sub = dispatch(
+                chatApi.endpoints.getChatHistory.initiate({myId, chatId: selectedChatId}, {forceRefetch: true})
+            );
+            try {
+                const res = await sub;
+                const fresh = res.data?.find((m) => m.clientId === messageId);
+                if (fresh) targetId = fresh.id;
+            } catch { /* fall back to the temp id (worst case: the same 404 as before) */ }
+            finally { sub.unsubscribe(); }
+        }
         try {
-            await deleteMessageMut({
-                chatId: selectedChatId,
-                backendId: server ? messageId : undefined,
-                clientMessageId: server ? undefined : messageId,
-            }).unwrap();
+            await deleteMessageMut({chatId: selectedChatId, messageId: targetId}).unwrap();
         } catch (e) {
             const st = (e as { status?: number })?.status;
             toast.error(st === 409 ? t("chat.msgFrozen") : t("chat.msgDeleteError"));
         }
-    }, [selectedChatId, deleteMessageMut, t]);
+    }, [selectedChatId, myId, store, dispatch, deleteMessageMut, t]);
 
     const sendAttachment = useCallback(async (file: File) => {
         if (!selectedChatId || !file) return;
@@ -193,29 +204,6 @@ export function useChat() {
         }
     }, [wsStatus, selectedChatId, reloadChatHistory, dispatch]);
 
-    // Newest message id in a chat that is a real server ULID (skips our own not-yet-reconciled temp
-    // client ids). READ_IN carries this as the read boundary the peer stores + uses for ✓✓.
-    const lastReadMessageId = useCallback((chatId: string): string | undefined => {
-        const data = chatApi.endpoints.getChatHistory.select({myId, chatId})(store.getState())?.data;
-        if (!data) return undefined;
-        for (let i = data.length - 1; i >= 0; i--) {
-            if (isUlid(data[i].id)) return data[i].id;
-        }
-        return undefined;
-    }, [myId, store]);
-
-    // Durable read receipts: GET /chats carries the PEER's read boundary (a ULID). Decode its embedded
-    // timestamp and feed it into the (monotonic) peer watermark so ✓✓ survives a reload. The live
-    // READ_OUT path keeps updating the same watermark instantly between chat-list refetches; both
-    // sources merge via Math.max in the reducer.
-    useEffect(() => {
-        for (const s of summaries) {
-            if (!s.peerReadReceipt) continue;
-            const at = ulidTimeMs(s.peerReadReceipt);
-            if (Number.isFinite(at)) dispatch(setPeerReadWatermark({chatId: s.conversationId, at}));
-        }
-    }, [summaries, dispatch]);
-
     // Deferred read: messages that arrived while the tab was hidden are marked read only when the
     // tab regains focus with the chat still open (mirrors the "active = open AND visible" rule).
     useEffect(() => {
@@ -223,11 +211,11 @@ export function useChat() {
             if (document.visibilityState !== "visible" || !selectedChatId) return;
             markRead(selectedChatId);
             const s = getSummary(selectedChatId);
-            if (s) dispatch({type: "ws/send", payload: buildReadIn(selectedChatId, s.counterpartId, lastReadMessageId(selectedChatId))});
+            if (s) dispatch({type: "ws/send", payload: buildReadIn(selectedChatId, s.counterpartId)});
         };
         document.addEventListener("visibilitychange", onVisible);
         return () => document.removeEventListener("visibilitychange", onVisible);
-    }, [selectedChatId, markRead, getSummary, dispatch, lastReadMessageId]);
+    }, [selectedChatId, markRead, getSummary, dispatch]);
 
     /* ======================
        Actions (memoized so <ChatWindow>/<ChatList> can be React.memo'd)
@@ -237,8 +225,8 @@ export function useChat() {
         markRead(chatId);
         // Mark the conversation read on open (peer receives READ_OUT).
         const s = getSummary(chatId);
-        if (s) dispatch({type: "ws/send", payload: buildReadIn(chatId, s.counterpartId, lastReadMessageId(chatId))});
-    }, [dispatch, markRead, getSummary, lastReadMessageId]);
+        if (s) dispatch({type: "ws/send", payload: buildReadIn(chatId, s.counterpartId)});
+    }, [dispatch, markRead, getSummary]);
 
     const sendMessage = useCallback((text: string) => {
         if (!selectedChatId || !text.trim()) return;

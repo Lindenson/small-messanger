@@ -13,7 +13,6 @@ export const WireMessageSchema = z
         recipientId: z.string().optional(),
         conversationId: z.string().optional(),
         messageId: z.string().optional(),     // server-assigned ULID (dedup + history cursor)
-        serverMessageId: z.string().optional(), // on CHAT_ACK: the STORED message's ULID (vs messageId = the ack frame's own id)
         correlationId: z.string().optional(),
         senderTimestamp: z.number().optional(),
         senderTimezone: z.string().optional(),
@@ -77,19 +76,11 @@ export function buildChatAck(delivered: WireMessage): WireMessage {
     };
 }
 
-/**
- * Read receipt (DELIVERED → READ; pushes READ_OUT to the peer). Same full-frame requirement.
- *
- * The server records `messageId` verbatim as this reader's read boundary ({client,master}ReadReceipt
- * in GET /chats), which the PEER uses to render ✓✓. So `messageId` MUST be the id (a server ULID) of
- * the last message the reader has read — pass `lastReadMessageId`. Falls back to a fresh id only when
- * none is known (e.g. an empty chat), which records no meaningful boundary but keeps the frame valid.
- */
-export function buildReadIn(conversationId: string, recipientId: string, lastReadMessageId?: string): WireMessage {
+/** Read receipt (DELIVERED → READ; pushes READ_OUT to the peer). Same full-frame requirement. */
+export function buildReadIn(conversationId: string, recipientId: string): WireMessage {
     return {
         type: "READ_IN",
-        messageId: newId(),                       // a fresh event id for the frame
-        correlationId: lastReadMessageId,          // the read boundary — backend reads lastReadId HERE
+        messageId: newId(),
         recipientId,
         conversationId,
         senderTimestamp: Date.now(),

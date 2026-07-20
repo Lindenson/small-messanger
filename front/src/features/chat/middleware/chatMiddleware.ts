@@ -8,7 +8,6 @@ import {markChatUnread, setPeerReadWatermark, setTyping} from "@/features/chat/m
 import {markSent} from "@/features/chat/model/slices/outboxSlice.ts";
 import {logger} from "@/shared/logger/logger.ts";
 import {playNotificationSound, showDesktopNotification} from "@/shared/sound/notify.ts";
-import {ulidTimeMs} from "@/shared/ulid/ulid.ts";
 import i18n from "@/shared/i18n";
 
 // How long a "peer is typing" indicator lingers before auto-clearing if no follow-up frame.
@@ -74,9 +73,7 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
             const hidden = typeof document !== "undefined" && document.hidden;
             const active = chatId === selectedChatId && !hidden;
             if (active) {
-                // Read boundary = this just-delivered message's id (a server ULID), so the peer's
-                // durable receipt advances to it.
-                if (frame.senderId) dispatch({type: "ws/send", payload: buildReadIn(chatId, frame.senderId, frame.messageId)});
+                if (frame.senderId) dispatch({type: "ws/send", payload: buildReadIn(chatId, frame.senderId)});
             } else {
                 dispatch(markChatUnread(chatId));
                 // Best-effort notify when not actively viewing.
@@ -100,19 +97,14 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
             // NOT carry the stored message's id — its messageId is the ack frame's own id.
             dispatch(markSent(frame.correlationId));
             const chatId = frame.conversationId ?? selectedChatId;
-            const at = frame.serverTimestamp;
-            const serverId = frame.serverMessageId;   // the STORED ULID (backend now returns it)
-            if (chatId && (typeof at === "number" || serverId)) {
+            if (chatId && typeof frame.serverTimestamp === "number") {
+                const at = frame.serverTimestamp;
                 dispatch(
                     chatApi.util.updateQueryData("getChatHistory", {myId, chatId}, (draft) => {
                         const m = draft?.find(
                             (x) => x.clientId === frame.correlationId || x.id === frame.correlationId
                         );
-                        if (!m) return;
-                        // Reconcile the optimistic echo: swap its temporary client id for the real
-                        // server ULID (so delete/read-boundary work by id), and stamp server time.
-                        if (serverId) m.id = serverId;
-                        if (typeof at === "number") m.createdAt = new Date(at);
+                        if (m) m.createdAt = new Date(at);
                     })
                 );
             }
@@ -120,13 +112,10 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
         }
 
         case "READ_OUT": {
-            // The peer read up to a boundary message → advance the read watermark; each of my
-            // messages then shows ✓✓ iff its createdAt <= watermark. The boundary ULID rides in
-            // correlationId ("read up to X"); decode its embedded ms for an exact, durable-matching
-            // watermark. Fall back to the frame's server time if it's somehow not a ULID.
+            // The peer read up to now → advance the read watermark; each of my messages then shows
+            // ✓✓ iff its createdAt <= watermark (per-message, not a single conversation flag).
             if (frame.conversationId) {
-                const fromBoundary = ulidTimeMs(frame.correlationId);
-                const at = Number.isFinite(fromBoundary) ? fromBoundary : (frame.serverTimestamp ?? Date.now());
+                const at = frame.serverTimestamp ?? Date.now();
                 dispatch(setPeerReadWatermark({chatId: frame.conversationId, at}));
             }
             break;

@@ -3,7 +3,7 @@ import {type ChatMessage} from "@/features/chat/model/schema/domainChatMessage.s
 import {wireToChatMessage} from "@/features/chat/model/mapper.ts";
 import {parseWireMessage} from "@/features/chat/model/schema/wireMessage.schema.ts";
 import {MESSENGER_ADMIN_KEY, MESSENGER_API} from "@/shared/config/api.ts";
-import {HISTORY_PAGE_SIZE} from "@/shared/config/chat.ts";
+import {HISTORY_MAX_PAGES, HISTORY_PAGE_SIZE} from "@/shared/config/chat.ts";
 import {loadHistoryFromDB, saveHistoryToDB} from "@/features/chat/db/db.ts";
 
 // Wire rows (up to a page) → domain messages, then dedup by clientId||id (guards against any
@@ -39,9 +39,6 @@ type Conversation = {
     metadata?: Record<string, string> | null;
     clientBlocked?: boolean;
     masterBlocked?: boolean;
-    // Durable read boundary per side: the messageId (server ULID) each participant last read up to.
-    clientReadReceipt?: string | null;
-    masterReadReceipt?: string | null;
 };
 
 /** Frontend chat-list item derived from a Conversation, relative to the caller. */
@@ -52,9 +49,6 @@ export type ChatSummary = {
     blocked: boolean;        // either side blocked → sending is impossible (block is mutual/terminal)
     blockedByMe: boolean;    // I blocked the peer (I can unblock)
     blockedByPeer: boolean;  // the peer blocked me (I can't unblock their side)
-    // The PEER's durable read boundary (their ...ReadReceipt): the messageId up to which they've read
-    // MY messages. Drives durable ✓✓ (survives reload) — see useChat's watermark-sync effect.
-    peerReadReceipt?: string;
 };
 
 export const chatApi = createApi({
@@ -77,8 +71,6 @@ export const chatApi = createApi({
                     const amClient = c.clientId === arg.myId;
                     const blockedByMe = amClient ? Boolean(c.clientBlocked) : Boolean(c.masterBlocked);
                     const blockedByPeer = amClient ? Boolean(c.masterBlocked) : Boolean(c.clientBlocked);
-                    // The peer's receipt = the OTHER side's read boundary (I'm client → master's).
-                    const peerReadReceipt = (amClient ? c.masterReadReceipt : c.clientReadReceipt) ?? undefined;
                     return {
                         conversationId: c.id,
                         counterpartId: amClient ? c.masterId : c.clientId,
@@ -86,7 +78,6 @@ export const chatApi = createApi({
                         blocked: blockedByMe || blockedByPeer,
                         blockedByMe,
                         blockedByPeer,
-                        peerReadReceipt,
                     };
                 });
             },
@@ -96,17 +87,33 @@ export const chatApi = createApi({
         // --------------------
         // Conversation history (cursor-paginated). chatId === conversationId.
         // --------------------
-        // Loads the NEWEST page (backend default = latest `limit`, ASC). Older pages are pulled on
-        // demand by the loadOlderHistory thunk (`?before=<oldest>`), which prepends into this cache;
-        // reconnect catch-up appends newer via `?since=`. Rendering is windowed downstream.
+        // Forward-paged history: the backend only serves message_id > since (ASC, LIMIT), so a
+        // single request returns the OLDEST page. We page forward (cursor = last messageId) and
+        // accumulate the full history, capped at HISTORY_MAX_PAGES. Returns the same ChatMessage[]
+        // shape as before, so consumers are unchanged; rendering is windowed downstream.
         getChatHistory: builder.query<
             ChatMessage[],
             { myId: string; chatId: string }
         >({
             async queryFn({chatId}, _api, _extra, baseQuery) {
-                const res = await baseQuery(`/chats/${chatId}/messages?limit=${HISTORY_PAGE_SIZE}`);
-                if (res.error) return {error: res.error};
-                return {data: dedupMessages(toMessages(res.data))};
+                const all: ChatMessage[] = [];
+                let since: string | undefined;
+                for (let page = 0; page < HISTORY_MAX_PAGES; page++) {
+                    const q = new URLSearchParams({limit: String(HISTORY_PAGE_SIZE)});
+                    if (since) q.set("since", since);
+                    const res = await baseQuery(`/chats/${chatId}/messages?${q.toString()}`);
+                    if (res.error) {
+                        // Tolerate a mid-loop failure: return what we have (first-page error surfaces).
+                        return all.length ? {data: dedupMessages(all)} : {error: res.error};
+                    }
+                    const rows = toMessages(res.data);
+                    all.push(...rows);
+                    if (rows.length < HISTORY_PAGE_SIZE) break;          // reached the last (short) page
+                    const cursor = rows[rows.length - 1]?.id;            // messageId == ULID cursor
+                    if (!cursor || cursor === since) break;              // no progress → stop
+                    since = cursor;
+                }
+                return {data: dedupMessages(all)};
             },
             providesTags: (_r, _e, arg) => [
                 {type: "Chat", id: arg.chatId},
@@ -217,16 +224,12 @@ export const chatApi = createApi({
             },
         }),
 
-        // Delete a single message by BOTH ids (only if not frozen → 409). The backend matches on the
-        // server ULID (backendId) if present, else the original client id (clientMessageId) — so a
-        // just-sent message that hasn't reconciled its id yet still deletes without a history refetch.
-        deleteMessage: builder.mutation<void, { chatId: string; backendId?: string; clientMessageId?: string }>({
-            query: ({ chatId, backendId, clientMessageId }) => {
-                const q = new URLSearchParams();
-                if (backendId) q.set("backendId", backendId);
-                if (clientMessageId) q.set("clientMessageId", clientMessageId);
-                return { url: `/chats/${chatId}/messages?${q.toString()}`, method: "DELETE" };
-            },
+        // Delete a single message (only if not frozen → 409).
+        deleteMessage: builder.mutation<void, { chatId: string; messageId: string }>({
+            query: ({ chatId, messageId }) => ({
+                url: `/chats/${chatId}/messages/${messageId}`,
+                method: "DELETE",
+            }),
             invalidatesTags: (_r, _e, arg) => [{ type: "Chat", id: arg.chatId }],
         }),
 
