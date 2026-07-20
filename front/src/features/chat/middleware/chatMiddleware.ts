@@ -4,10 +4,11 @@ import type {AppDispatch} from "@/store/store.ts";
 import {chatApi} from "@/features/chat/rest/chatApi.ts";
 import {wireToChatMessage} from "@/features/chat/model/mapper.ts";
 import {buildChatAck, buildReadIn, type WireMessage} from "@/features/chat/model/schema/wireMessage.schema.ts";
-import {markChatUnread, setPeerLastReadId, setTyping} from "@/features/chat/model/slices/chatUiSlice.ts";
+import {markChatUnread, setPeerReadWatermark, setTyping} from "@/features/chat/model/slices/chatUiSlice.ts";
 import {markSent} from "@/features/chat/model/slices/outboxSlice.ts";
 import {logger} from "@/shared/logger/logger.ts";
 import {playNotificationSound, showDesktopNotification} from "@/shared/sound/notify.ts";
+import {ulidTimeMs} from "@/shared/ulid/ulid.ts";
 import i18n from "@/shared/i18n";
 
 // How long a "peer is typing" indicator lingers before auto-clearing if no follow-up frame.
@@ -119,11 +120,14 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
         }
 
         case "READ_OUT": {
-            // The peer read up to a boundary message ("read up to X"): the boundary ULID rides in
-            // correlationId. Store it as the conversation's read boundary → my messages with
-            // id <= peerLastReadId render ✓✓. Monotonic in the reducer.
-            if (frame.conversationId && frame.correlationId) {
-                dispatch(setPeerLastReadId({chatId: frame.conversationId, lastReadId: frame.correlationId}));
+            // The peer read up to a boundary message → advance the read watermark; each of my
+            // messages then shows ✓✓ iff its createdAt <= watermark. The boundary ULID rides in
+            // correlationId ("read up to X"); decode its embedded ms for an exact, durable-matching
+            // watermark. Fall back to the frame's server time if it's somehow not a ULID.
+            if (frame.conversationId) {
+                const fromBoundary = ulidTimeMs(frame.correlationId);
+                const at = Number.isFinite(fromBoundary) ? fromBoundary : (frame.serverTimestamp ?? Date.now());
+                dispatch(setPeerReadWatermark({chatId: frame.conversationId, at}));
             }
             break;
         }

@@ -141,11 +141,11 @@ function ChatWindow({
     const selectedChatId = useSelector(
         (state: RootState) => state.chatUi.selectedChatId
     );
-    // The message id (server ULID) the peer has read up to. Server-driven: the history response
-    // (HistoryPage.peerLastReadId) and the live READ_OUT frame (its correlationId) both feed it via
-    // chatUi. A sent message shows ✓✓ iff its id <= this (ULID lexicographic == chronological).
-    const peerLastReadId = useSelector((state: RootState) =>
-        selectedChatId ? (state.chatUi.peerLastReadIdByChat[selectedChatId] ?? "") : ""
+    // Epoch-ms the peer has read up to. Fed by BOTH the live READ_OUT (instant) and the durable
+    // per-conversation receipt from GET /chats (a ULID decoded to ms in useChat) — the latter makes
+    // ✓✓ survive a reload. A sent message shows ✓✓ iff its createdAt <= this.
+    const peerReadWatermark = useSelector((state: RootState) =>
+        selectedChatId ? (state.chatUi.peerReadWatermarkByChat[selectedChatId] ?? 0) : 0
     );
     const peerTyping = useSelector((state: RootState) =>
         selectedChatId ? !!state.chatUi.typingByChat[selectedChatId] : false
@@ -391,9 +391,8 @@ function ChatWindow({
                                     <span className="ml-2 text-[10px] align-bottom opacity-70" title={t("chat.sending")}>🕐</span>
                                 );
                             }
-                            // Per-message read state: read iff this message's id is at/below the peer's
-                            // read boundary (both server ULIDs; string compare == chronological).
-                            const isRead = !!peerLastReadId && msg.id <= peerLastReadId;
+                            // Per-message read state: read iff this message is at/below the peer's watermark.
+                            const isRead = msg.createdAt <= peerReadWatermark;
                             return (
                                 <span className="ml-2 text-[10px] align-bottom opacity-70"
                                       title={isRead ? t("chat.read") : t("chat.sent")}>

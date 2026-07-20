@@ -4,11 +4,11 @@ import {clearUser} from "@/features/auth/slices/userSlice.ts";
 
 interface ChatUiState {
     selectedChatId: string | null;
-    // Per-conversation read boundary: the messageId (server ULID) up to which the PEER has read my
-    // messages. Server-driven — comes from the history response (`HistoryPage.peerLastReadId`) and
-    // from the live READ_OUT frame (its correlationId). A sent message shows ✓✓ iff
-    // `messageId <= peerLastReadId` (ULID lexicographic == chronological). Monotonic.
-    peerLastReadIdByChat: Record<string, string>;
+    // Per-conversation READ watermark: epoch-ms up to which the peer has read my messages (bumped
+    // on READ_OUT). A sent message shows ✓✓ iff its createdAt <= watermark — so ✓✓ is PER-MESSAGE:
+    // sending a new message no longer un-ticks already-read older ones, and reading advances only
+    // the messages up to "now". Monotonic; ephemeral (durable read state needs a backend watermark).
+    peerReadWatermarkByChat: Record<string, number>;
     // Per-conversation: is the peer currently typing (set on TYPING_OUT, auto-cleared).
     typingByChat: Record<string, boolean>;
     // Per-conversation: has unread incoming message(s). Lives in the store (not component state)
@@ -18,7 +18,7 @@ interface ChatUiState {
 
 const initialState: ChatUiState = {
     selectedChatId: null,
-    peerLastReadIdByChat: {},
+    peerReadWatermarkByChat: {},
     typingByChat: {},
     unreadByChat: {},
 };
@@ -31,13 +31,10 @@ const chatUiSlice = createSlice({
             logger.debug("setSelectedChatId", action.payload);
             state.selectedChatId = action.payload;
         },
-        // Advance the peer's read boundary (a message ULID) for a conversation. Monotonic: ULIDs sort
-        // lexicographically by time, so we keep the greater id and never regress (ignores empty/null).
-        setPeerLastReadId(state, action: PayloadAction<{ chatId: string; lastReadId?: string | null }>) {
-            const next = action.payload.lastReadId;
-            if (!next) return;
-            const cur = state.peerLastReadIdByChat[action.payload.chatId];
-            if (!cur || next > cur) state.peerLastReadIdByChat[action.payload.chatId] = next;
+        // Advance the peer's read watermark for a conversation (monotonic — never regresses).
+        setPeerReadWatermark(state, action: PayloadAction<{ chatId: string; at: number }>) {
+            const cur = state.peerReadWatermarkByChat[action.payload.chatId] ?? 0;
+            state.peerReadWatermarkByChat[action.payload.chatId] = Math.max(cur, action.payload.at);
         },
         setTyping(state, action: PayloadAction<{ chatId: string; typing: boolean }>) {
             state.typingByChat[action.payload.chatId] = action.payload.typing;
@@ -53,13 +50,13 @@ const chatUiSlice = createSlice({
         // Drop all per-conversation UI state on logout so a new session starts clean.
         builder.addCase(clearUser, (state) => {
             state.selectedChatId = null;
-            state.peerLastReadIdByChat = {};
+            state.peerReadWatermarkByChat = {};
             state.typingByChat = {};
             state.unreadByChat = {};
         });
     },
 });
 
-export const { setSelectedChatId, setPeerLastReadId, setTyping, markChatUnread, markChatRead } =
+export const { setSelectedChatId, setPeerReadWatermark, setTyping, markChatUnread, markChatRead } =
     chatUiSlice.actions;
 export default chatUiSlice.reducer;
