@@ -49,3 +49,10 @@ export async function loadHistoryFromDB(chatId: string): Promise<ChatMessage[] |
     const result = await db.get(HISTORY_STORE_NAME, chatId);
     return (result as ChatMessage[]) ?? null;
 }
+
+// Wipe all locally-cached user data (outbox queue + per-conversation history). Called on logout so
+// one user's queued messages and plaintext history never linger on the device for the next user.
+export async function clearAllLocalData() {
+    const db = await initDB();
+    await Promise.all([db.clear(STORE_NAME), db.clear(HISTORY_STORE_NAME)]);
+}

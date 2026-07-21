@@ -43,6 +43,15 @@ export default defineConfig({
           cleanupOutdatedCaches: true,
           // Chat/IDS/Kratos APIs are outside the SW scope (/messenger-ui/) → never intercepted;
           // only the app shell is precached.
+          //
+          // MUST be set explicitly: vite-plugin-pwa only auto-enables these for injectRegister
+          // "auto"/null, and we use "inline" (to dodge CDN-cached registerSW.js). Without them the
+          // freshly-deployed SW installs but sits in "waiting" forever while any tab/PWA stays open,
+          // the old SW keeps serving the stale precached bundle, and main.tsx's controllerchange
+          // reload never fires — devices get stuck on old builds until fully closed. With them the
+          // new SW activates + claims immediately → controllerchange → one clean reload to the new build.
+          skipWaiting: true,
+          clientsClaim: true,
         },
       }),
       visualizer({

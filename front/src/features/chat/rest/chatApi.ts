@@ -1,5 +1,6 @@
 import {createApi, fetchBaseQuery} from "@reduxjs/toolkit/query/react";
 import {type ChatMessage} from "@/features/chat/model/schema/domainChatMessage.schema.ts";
+import type {OutboxMessage} from "@/features/chat/model/types.ts";
 import {wireToChatMessage} from "@/features/chat/model/mapper.ts";
 import {parseWireMessage} from "@/features/chat/model/schema/wireMessage.schema.ts";
 import {MESSENGER_ADMIN_KEY, MESSENGER_API} from "@/shared/config/api.ts";
@@ -103,6 +104,32 @@ export const chatApi = createApi({
                 const res = await baseQuery(`/chats/${chatId}/messages?limit=${HISTORY_PAGE_SIZE}`);
                 if (res.error) return {error: res.error};
                 const messages = dedupMessages(toMessages(res.data));
+
+                // Re-graft still-queued outbox messages for this chat. A forceRefetch REPLACES the
+                // cache array, wiping the optimistic echoes of not-yet-acked messages; the CHAT_ACK
+                // handler only updates an existing row (never re-inserts), so without this a pending
+                // message would vanish from the sender's transcript on reconnect / after sending an
+                // attachment (both call reloadChatHistory). Everything still in the outbox is by
+                // definition un-acked (markSent removes it on ACK), so it isn't in the server rows yet
+                // → append it, skipping any id already present.
+                const outbox = (api.getState() as { outbox?: { messages?: OutboxMessage[] } }).outbox?.messages ?? [];
+                const present = new Set(messages.map((m) => m.id));
+                for (const o of outbox) {
+                    const p = o.payload;
+                    if (p?.conversationId !== chatId || present.has(o.id)) continue;
+                    messages.push({
+                        id: o.id,
+                        clientId: o.id,
+                        chatId,
+                        from: myId,
+                        to: p.recipientId ?? "",
+                        text: p.payload?.body ?? "",
+                        createdAt: new Date(p.senderTimestamp ?? Date.now()),
+                        status: o.status,
+                        kind: p.payload?.kind,
+                        meta: p.meta,
+                    });
+                }
                 // Read state is NOT in the history rows (they carry no status, and there is no
                 // peerLastReadId field) — it lives only in the separate receipts projection
                 // (GET /chats/:id/receipts → [{messageId, status}], status READ once the recipient

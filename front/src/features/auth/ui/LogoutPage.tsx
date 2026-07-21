@@ -5,6 +5,10 @@ import type {AppDispatch} from "@/store/store.ts";
 import {useState} from "react";
 import {clearUser} from "@/features/auth/slices/userSlice.ts";
 import {logout} from "@/features/auth/model/services/kratosFlows.ts";
+import {chatApi} from "@/features/chat/rest/chatApi.ts";
+import {contactsApi} from "@/features/contacts/rest/contactsApi.ts";
+import {idsApi} from "@/features/directory/idsApi.ts";
+import {clearAllLocalData} from "@/features/chat/db/db.ts";
 
 
 export default function LogoutPage() {
@@ -15,7 +19,13 @@ export default function LogoutPage() {
 
     function onLogoutEvents() {
         dispatch({type: "ws/disconnect"});
-        dispatch(clearUser());
+        dispatch(clearUser());   // resets user + outbox + chatUi + presence slices
+        // Drop cached server data so the next user on this device can't read the previous user's
+        // chat list, contacts, directory, or history — in memory AND on disk.
+        dispatch(chatApi.util.resetApiState());
+        dispatch(contactsApi.util.resetApiState());
+        dispatch(idsApi.util.resetApiState());
+        clearAllLocalData().catch(() => { /* best-effort wipe */ });
     }
 
     const handleLogout = async () => {

@@ -1,6 +1,7 @@
 import {createSlice, type PayloadAction} from "@reduxjs/toolkit";
 import type {OutboxMessage, OutboxState} from "@/features/chat/model/types.ts";
 import {logger} from "@/shared/logger/logger.ts";
+import {clearUser} from "@/features/auth/slices/userSlice.ts";
 
 const initialState: OutboxState = {
     messages: [],
@@ -77,6 +78,16 @@ const outboxSlice = createSlice({
             logger.debug("storage persisted");
             state.persistedVersion = state.outboxVersion;
         },
+    },
+    extraReducers: (builder) => {
+        // On logout, drop every queued message so it can never be re-flushed under the NEXT user's
+        // session on this device (that would misattribute user A's message to user B). Bump the
+        // version so the debounced persister overwrites the IndexedDB copy with the empty outbox
+        // (LogoutPage also clears the DB directly, but this keeps in-memory + persisted consistent).
+        builder.addCase(clearUser, (state) => {
+            state.messages = [];
+            state.outboxVersion = bumpVersion();
+        });
     },
 });
 
