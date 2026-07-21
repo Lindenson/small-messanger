@@ -7,6 +7,7 @@ import {chatApi, useCreateChatMutation} from "@/features/chat/rest/chatApi.ts";
 import {setSelectedChatId} from "@/features/chat/model/slices/chatUiSlice.ts";
 import {idsDisplayName, useGetIdsUserQuery, useLazySearchIdsUsersQuery, type IdsUser} from "@/features/directory/idsApi.ts";
 import {isNotLogged} from "@/shared/utils/checks.ts";
+import {resolveChatPair} from "@/features/contacts/model/resolveChatPair.ts";
 import {logger} from "@/shared/logger/logger.ts";
 import toast from "react-hot-toast";
 import {useTranslation} from "react-i18next";
@@ -97,20 +98,9 @@ export default function AddContactPage() {
             return;
         }
 
-        const otherRole = (other.role ?? "").toLowerCase();
-        // Assign clientId/masterId for the (me, other) pair. When the two roles DISAMBIGUATE (one
-        // client, one master) both sides compute the same tuple. Otherwise (same role, or unknown)
-        // fall back to a DETERMINISTIC ordering by id — NOT "whoever initiated" — so a create from
-        // either side yields the identical tuple and createChat stays idempotent (no swapped-role dup).
-        let clientId: string, masterId: string;
-        const myIsMaster = myRole === "master", myIsClient = myRole === "client";
-        const otherIsMaster = otherRole === "master", otherIsClient = otherRole === "client";
-        if ((myIsMaster && otherIsClient) || (myIsClient && otherIsMaster)) {
-            if (myIsMaster) { masterId = myId; clientId = other.id; }
-            else { clientId = myId; masterId = other.id; }
-        } else {
-            [clientId, masterId] = [myId, other.id].sort();
-        }
+        // Deterministic (clientId, masterId) so a create from either side yields the same tuple and
+        // createChat stays idempotent (no swapped-role duplicate). See resolveChatPair.
+        const {clientId, masterId} = resolveChatPair(myId, myRole, other.id, other.role);
         try {
             const conv = await createChat({clientId, masterId, metadata: {}}).unwrap();
             // The pair may already exist and be soft-deleted for both sides (getChats hides it
