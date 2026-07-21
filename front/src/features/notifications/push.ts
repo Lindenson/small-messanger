@@ -19,7 +19,7 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
     return out;
 }
 
-function pushSupported(): boolean {
+export function pushSupported(): boolean {
     return typeof window !== "undefined"
         && "serviceWorker" in navigator
         && "PushManager" in window

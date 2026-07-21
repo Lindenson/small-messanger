@@ -5,6 +5,11 @@
     "loading": "Cargando...",
     "showMore": "Mostrar más"
   },
+  "notify": {
+    "enablePrompt": "Recibe avisos de mensajes nuevos",
+    "enable": "Activar",
+    "later": "Luego"
+  },
   "language": {
     "label": "Idioma",
     "es": "ES",

@@ -6,6 +6,7 @@ import {useTranslation} from "react-i18next";
 import ChatList from "@/features/chat/ui/ChatList.tsx";
 import ChatWindow from "@/features/chat/ui/ChatWindow.js";
 import {ConnectionBanner} from "@/features/chat/ui/ConnectionBanner.tsx";
+import {NotificationPrompt} from "@/features/notifications/ui/NotificationPrompt.tsx";
 import ConfirmModal from "@/widgets/modal/ConfirmModal.jsx";
 import VideoCall from "@/features/call/ui/VideoCall.tsx";
 import {useChat} from "@/features/chat/hooks";
@@ -67,6 +68,7 @@ export default function Messenger() {
     return (
         <div className="relative h-dvh w-screen flex overflow-hidden bg-gray-300">
             <ConnectionBanner/>
+            <NotificationPrompt/>
             {/* ===== Chat List ===== */}
             <ChatList
                 chats={chat.filteredChats}
