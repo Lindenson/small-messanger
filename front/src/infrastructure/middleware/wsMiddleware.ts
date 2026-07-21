@@ -15,6 +15,8 @@ import {isNotLogged} from "@/shared/utils/checks";
 import type {User} from "@/features/auth/model/types.ts";
 import {chatApi, type ChatSummary} from "@/features/chat/rest/chatApi.ts";
 import {logger} from "@/shared/logger/logger.ts";
+import {kratos} from "@/features/auth/model/services/kratos.ts";
+import {clearUser} from "@/features/auth/slices/userSlice.ts";
 
 
 type WSConnectAction = PayloadAction<{ url: string }, string, { shouldReconnect: boolean; }>
@@ -94,9 +96,26 @@ export const websocketMiddleware: Middleware =
                 socket = null;
                 dispatch(disconnected());
 
-                if (shouldReconnect) {
-                    scheduleReconnect(url);
+                if (!shouldReconnect) return;
+
+                // A rejected WS upgrade (expired Kratos session) surfaces as a generic close (1006),
+                // indistinguishable from a network drop — so blind reconnect would loop forever while
+                // the user still looks "logged in" and is never sent to /login. After a few failures,
+                // probe the session: if it's gone, stop the loop and trigger re-auth (clearUser makes
+                // RequireAuth redirect and connect() then skips as not-logged-in); if it's valid, it's
+                // a genuine network issue → keep retrying.
+                if (reconnectAttempts >= 3) {
+                    kratos.toSession().then(
+                        () => scheduleReconnect(url),
+                        () => {
+                            logger.debug("WS reconnect halted: no active session → re-auth");
+                            dispatch(clearUser());
+                            dispatch({type: "ws/disconnect"});
+                        }
+                    );
+                    return;
                 }
+                scheduleReconnect(url);
             };
         };
 

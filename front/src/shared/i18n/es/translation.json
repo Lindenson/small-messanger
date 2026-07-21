@@ -97,6 +97,7 @@
     "calling": "Llamando a {{name}}…",
     "connecting": "Conectando…",
     "noAnswer": "Sin respuesta",
+    "noConversation": "No se puede llamar — abre primero un chat con este contacto",
     "accept": "Aceptar",
     "reject": "Rechazar",
     "hangUp": "Finalizar llamada"

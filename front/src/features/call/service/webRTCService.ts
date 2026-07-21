@@ -274,6 +274,22 @@ export class WebRTCService {
     }
 
     /* ======================
+       Tear down on a REMOTE hangup: cleanup only, WITHOUT echoing call:end back — the peer already
+       ended, so re-sending is a spurious signaling frame.
+    ====================== */
+    public endRemote() {
+        this.cleanup();
+    }
+
+    /* ======================
+       Decline someone else's incoming offer while already in a call: tell just that caller, and do
+       NOT touch our live peer connection / streams (rejectCall's cleanup would kill the active call).
+    ====================== */
+    public declineOffer(to: string) {
+        this.send({type: "call:end", to});
+    }
+
+    /* ======================
        Get connection state (for middleware)
     ====================== */
     public getConnectionState(): RTCPeerConnectionState | null {

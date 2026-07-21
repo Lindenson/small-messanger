@@ -8,6 +8,24 @@ import {
 } from "@/features/call/model/slices/callSlice.js";
 import { createCallMiddleware } from "../callMiddleware";
 import type { WebRTCService } from "@/features/call/service/webRTCService";
+import { chatApi } from "@/features/chat/rest/chatApi.ts";
+
+// A getState() that resolves the getChats cache so the outgoing-call conversation guard passes.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function stateWithConversation(counterpartId: string, call: any) {
+    return {
+        call,
+        user: { id: "me" },
+        [chatApi.reducerPath]: {
+            queries: {
+                'getChats({"myId":"me"})': {
+                    status: "fulfilled",
+                    data: [{ conversationId: "c1", counterpartId, blocked: false, blockedByMe: false, blockedByPeer: false }],
+                },
+            },
+        },
+    };
+}
 
 describe("callMiddleware", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -36,6 +54,8 @@ describe("callMiddleware", () => {
             handleAnswer: vi.fn(() => Promise.resolve()),
             addIce: vi.fn(() => Promise.resolve()),
             hangUp: vi.fn(),
+            endRemote: vi.fn(),
+            declineOffer: vi.fn(),
             rejectCall: vi.fn(),
             getConnectionState: vi.fn(() => null),
         } as unknown as WebRTCService;
@@ -57,11 +77,29 @@ describe("callMiddleware", () => {
         );
     });
 
-    it("ws/incoming: call:answer вызывает handleAnswer и диспатчит incomingAnswer", async () => {
+    it("ws/incoming: call:answer вызывает handleAnswer и диспатчит incomingAnswer (когда есть pc)", async () => {
+        // We have a pending outgoing call → getConnectionState is truthy → transition to connecting.
+        webRTCService.getConnectionState = vi.fn(() => "connecting" as RTCPeerConnectionState);
         const msg: IncomingWebRTCMessage = { type: "call:answer", from: "peer2", answer: {} as RTCSessionDescriptionInit};
         await middleware(store)(next)({ type: "ws/incoming", payload: msg });
         expect(webRTCService.handleAnswer).toHaveBeenCalledWith(msg);
         expect(store.dispatch).toHaveBeenCalledWith(incomingAnswer());
+    });
+
+    it("ws/incoming: call:answer БЕЗ активного pc НЕ диспатчит incomingAnswer (поздний/сторонний answer)", async () => {
+        // getConnectionState is null (default mock) → a stray answer must not flip idle → connecting.
+        const msg: IncomingWebRTCMessage = { type: "call:answer", from: "peer2", answer: {} as RTCSessionDescriptionInit};
+        await middleware(store)(next)({ type: "ws/incoming", payload: msg });
+        expect(webRTCService.handleAnswer).toHaveBeenCalledWith(msg);
+        expect(store.dispatch).not.toHaveBeenCalledWith(incomingAnswer());
+    });
+
+    it("ws/incoming: call:offer при НЕ-idle статусе отклоняется (declineOffer), не клоббит активный звонок", () => {
+        store.getState = vi.fn(() => ({ call: { status: "in_call", peerId: "peerY", incomingOfferData: null } }));
+        const msg: IncomingWebRTCMessage = { type: "call:offer", from: "peerZ", offer: {} as RTCSessionDescriptionInit };
+        middleware(store)(next)({ type: "ws/incoming", payload: msg });
+        expect(webRTCService.declineOffer).toHaveBeenCalledWith("peerZ");
+        expect(store.dispatch).not.toHaveBeenCalledWith(incomingOffer({ from: "peerZ", offer: {} as RTCSessionDescriptionInit }));
     });
 
     it("ws/incoming: call:ice вызывает addIce", async () => {
@@ -70,17 +108,27 @@ describe("callMiddleware", () => {
         expect(webRTCService.addIce).toHaveBeenCalledWith(msg);
     });
 
-    it("ws/incoming: call:end вызывает hangUp и диспатчит incomingRemoteEnd", () => {
+    it("ws/incoming: call:end вызывает endRemote (без эхо) и диспатчит incomingRemoteEnd", () => {
         const msg: IncomingWebRTCMessage = { type: "call:end", from: "peer4" };
         middleware(store)(next)({ type: "ws/incoming", payload: msg });
-        expect(webRTCService.hangUp).toHaveBeenCalled();
+        expect(webRTCService.endRemote).toHaveBeenCalled();
+        expect(webRTCService.hangUp).not.toHaveBeenCalled();
         expect(store.dispatch).toHaveBeenCalledWith(incomingRemoteEnd());
     });
 
-    it("call/outgoingCall вызывает startCall", async () => {
+    it("call/outgoingCall вызывает startCall когда есть беседа с абонентом", async () => {
+        store.getState = vi.fn(() => stateWithConversation("peer5", { status: "idle", peerId: null, incomingOfferData: null }));
         const action = { type: "call/outgoingCall", payload: "peer5" };
         await middleware(store)(next)(action);
         expect(webRTCService.startCall).toHaveBeenCalledWith("peer5");
+    });
+
+    it("call/outgoingCall БЕЗ беседы не звонит, а диспатчит localEnd", async () => {
+        store.getState = vi.fn(() => stateWithConversation("someoneElse", { status: "idle", peerId: null, incomingOfferData: null }));
+        const action = { type: "call/outgoingCall", payload: "peer5" };
+        await middleware(store)(next)(action);
+        expect(webRTCService.startCall).not.toHaveBeenCalled();
+        expect(store.dispatch).toHaveBeenCalledWith(localEnd());
     });
 
     it("call/acceptCall вызывает handleOffer если есть incomingOfferData", async () => {
