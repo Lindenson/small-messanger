@@ -90,7 +90,7 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
                 dispatch(markChatUnread(chatId));
                 // Best-effort notify when not actively viewing.
                 playNotificationSound();
-                if (hidden) showDesktopNotification(i18n.t("chat.newMessage"), msg.text || "");
+                if (hidden) showDesktopNotification(i18n.t("chat.newMessage"), msg.text || "", chatId);
             }
             break;
         }

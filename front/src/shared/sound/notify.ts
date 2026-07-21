@@ -93,15 +93,23 @@ export function armNotificationPermissionOnGesture(onGranted?: () => void) {
  * here runs — that case needs server-sent Web Push (VAPID + a push handler in the SW), a backend
  * feature not covered by this client-only path.
  */
-export function showDesktopNotification(title: string, body: string) {
+export function showDesktopNotification(title: string, body: string, conversationId?: string) {
     try {
         if (!("Notification" in window) || Notification.permission !== "granted") return;
+        const base = import.meta.env.BASE_URL;
         const opts = {
             body,
-            icon: `${import.meta.env.BASE_URL}pwa-192x192.png`,
-            badge: `${import.meta.env.BASE_URL}pwa-192x192.png`,
-            tag: "chat-message",     // collapse rapid messages into one; renotify re-alerts
+            icon: `${base}pwa-192x192.png`,
+            badge: `${base}pwa-192x192.png`,
+            // Same tag AND data.url as the server Web Push (which also keys tag on conversationId):
+            //  - same tag ⇒ if BOTH the online (this) and the offline (Web Push) notification fire for
+            //    one message in the reconnect/backgrounded overlap, the OS COALESCES them into one
+            //    instead of showing a duplicate;
+            //  - data.url ⇒ clicking routes to the chat via the SW's notificationclick handler (the
+            //    online notification used to just open the app root).
+            tag: conversationId || "chat-message",
             renotify: true,
+            data: {conversationId, url: conversationId ? `${base}?chat=${conversationId}` : base},
         } as NotificationOptions;
         // Use the SW registration whenever the browser has service workers — NOT gated on
         // navigator.serviceWorker.controller. `ready` resolves to the active registration even when
