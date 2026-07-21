@@ -29,7 +29,17 @@ self.addEventListener("push", (event) => {
         renotify: true,
         data: (payload.data && typeof payload.data === "object") ? payload.data : {},
     };
-    event.waitUntil(self.registration.showNotification(title, options));
+    // Enforce ONE notification per conversation even if the OS doesn't honor tag-replace (iOS is
+    // unreliable): close any existing notification with the same tag before showing. This dedups the
+    // online (client-side, backgrounded-but-alive) notification against this server push when both
+    // fire for the same message in the reconnect overlap.
+    event.waitUntil((async () => {
+        try {
+            const existing = await self.registration.getNotifications({ tag: options.tag });
+            for (const n of existing) n.close();
+        } catch (e) { /* getNotifications unsupported → rely on tag-replace */ }
+        await self.registration.showNotification(title, options);
+    })());
 });
 
 self.addEventListener("notificationclick", (event) => {
