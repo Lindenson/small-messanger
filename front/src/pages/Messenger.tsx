@@ -1,5 +1,5 @@
-import {useCallback, useState} from "react";
-import {useNavigate} from "react-router-dom";
+import {useCallback, useEffect, useState} from "react";
+import {useNavigate, useSearchParams} from "react-router-dom";
 import {useDispatch, useSelector} from "react-redux";
 import {useTranslation} from "react-i18next";
 
@@ -36,6 +36,22 @@ export default function Messenger() {
        Chat service
     ====================== */
     const chat = useChat();
+
+    /* ======================
+       Deep link from a push notification: /messenger-ui/?chat=<conversationId> opens that chat
+       (the SW's notificationclick navigates here). Open it once, then strip the param so a later
+       reload/back doesn't reopen it.
+    ====================== */
+    const [searchParams, setSearchParams] = useSearchParams();
+    const openChat = chat.openChat;
+    useEffect(() => {
+        const chatParam = searchParams.get("chat");
+        if (!chatParam) return;
+        openChat(chatParam);
+        const next = new URLSearchParams(searchParams);
+        next.delete("chat");
+        setSearchParams(next, {replace: true});
+    }, [searchParams, openChat, setSearchParams]);
 
     /* ======================
        Delete modal
