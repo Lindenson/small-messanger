@@ -52,8 +52,14 @@ async function fetchVapidKey(): Promise<string | null> {
  * Ensure this device is subscribed to Web Push and registered with the backend. Idempotent: safe to
  * call on every app start and after permission is granted. No-op unless permission is "granted".
  */
+let ensuring = false;
+
 export async function ensurePushSubscription(): Promise<void> {
     if (!pushSupported() || Notification.permission !== "granted") return;
+    // Reentrancy guard: this can be triggered by several paths at once (mount, gesture arm, the
+    // Enable button, a login). Without it, concurrent runs fire duplicate subscribe/register calls.
+    if (ensuring) return;
+    ensuring = true;
     try {
         const reg = await navigator.serviceWorker.ready;
 
@@ -99,6 +105,8 @@ export async function ensurePushSubscription(): Promise<void> {
         else logger.debug("push: subscription registered");
     } catch (err) {
         logger.warn("push: ensureSubscription failed", {err});
+    } finally {
+        ensuring = false;
     }
 }
 

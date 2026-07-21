@@ -38,10 +38,12 @@ self.addEventListener("notificationclick", (event) => {
     const target = data.url || (self.registration.scope);
     event.waitUntil((async () => {
         const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-        // Focus an already-open app window if there is one.
+        // Focus an already-open app window if there is one, and route it to the click-through URL
+        // (e.g. the conversation the push was for) — focus alone would leave it on whatever was open.
         for (const c of wins) {
             if (c.url && c.url.indexOf(SCOPE_PATH) !== -1 && "focus" in c) {
                 try { await c.focus(); } catch (e) { /* ignore */ }
+                if (target && "navigate" in c) { try { await c.navigate(target); } catch (e) { /* ignore */ } }
                 return;
             }
         }

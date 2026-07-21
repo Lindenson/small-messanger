@@ -107,10 +107,20 @@ export const websocketMiddleware: Middleware =
                 if (reconnectAttempts >= 3) {
                     kratos.toSession().then(
                         () => scheduleReconnect(url),
-                        () => {
-                            logger.debug("WS reconnect halted: no active session → re-auth");
-                            dispatch(clearUser());
-                            dispatch({type: "ws/disconnect"});
+                        (err: unknown) => {
+                            // Only treat a real 401/403 as "session gone → re-auth". A network
+                            // failure/timeout ALSO rejects toSession() (no response), and that is the
+                            // common case here (the same outage that dropped the WS) — logging the user
+                            // out then would be a false logout on a valid session. Keep retrying instead.
+                            const status = (err as {response?: {status?: number}})?.response?.status;
+                            if (status === 401 || status === 403) {
+                                logger.debug("WS reconnect halted: session invalid → re-auth");
+                                dispatch(clearUser());
+                                dispatch({type: "ws/disconnect"});
+                            } else {
+                                logger.debug("WS session probe inconclusive (network) → keep retrying");
+                                scheduleReconnect(url);
+                            }
                         }
                     );
                     return;

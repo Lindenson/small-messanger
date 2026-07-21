@@ -1,13 +1,33 @@
-import {type AppDispatch} from "@/store/store";
+import {type AppDispatch, type RootState} from "@/store/store";
 import {chatApi} from "@/features/chat/rest/chatApi";
 import type {ChatMessage} from "../schema/domainChatMessage.schema";
 import {logger} from "@/shared/logger/logger.ts";
 import {enqueueMessage} from "@/features/chat/model/slices/outboxSlice.ts";
 import {toOutboxMessage} from "@/features/chat/model/mapper.ts";
 import {flushOutbox} from "@/features/chat/thunk/sendOutboxThunk.ts";
+import {preserveSelectedConversation} from "@/features/chat/model/preserveSelectedConversation.ts";
 
 
 export const chatMessagesService = {
+    // Refetch the chat list, but keep the currently-selected conversation if the fresh list omits it
+    // (a just-created, still-message-less chat the backend hides from GET /chats — injected+selected
+    // by AddUser). EVERY getChats refetch path must go through this, or the selected chat vanishes and
+    // useChat's dangling-close then drops the open window. Used by the resume/reconnect catch-up AND
+    // the middleware's unknown-conversation refresh.
+    refetchChatsPreservingSelected(dispatch: AppDispatch, getState: () => RootState) {
+        const state = getState();
+        const myId = state.user?.id;
+        if (!myId) return;
+        const selectedChatId = state.chatUi?.selectedChatId ?? null;
+        const before = chatApi.endpoints.getChats.select({myId})(state)?.data;
+        return dispatch(chatApi.endpoints.getChats.initiate({myId}, {forceRefetch: true}))
+            .unwrap()
+            .then(() => {
+                dispatch(chatApi.util.updateQueryData("getChats", {myId}, (draft) =>
+                    preserveSelectedConversation(draft ?? [], before, selectedChatId)));
+            })
+            .catch(() => { /* best-effort */ });
+    },
     incomingMessage(dispatch: AppDispatch, myId: string, msg: ChatMessage) {
         const chatId = msg.chatId;
         if (!chatId) return;

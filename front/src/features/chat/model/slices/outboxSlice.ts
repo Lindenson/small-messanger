@@ -74,9 +74,13 @@ const outboxSlice = createSlice({
             state.outboxVersion = bumpVersion();
         },
 
-        markPersisted(state) {
-            logger.debug("storage persisted");
-            state.persistedVersion = state.outboxVersion;
+        // Record the version that was ACTUALLY written, passed by the saver — NOT the live
+        // outboxVersion. If a new message bumped the version during the async IndexedDB write, reading
+        // it live here would mark that newer (unsaved) version persisted and the saver would skip it,
+        // losing the message from disk.
+        markPersisted(state, action: PayloadAction<number>) {
+            logger.debug("storage persisted", action.payload);
+            state.persistedVersion = action.payload;
         },
     },
     extraReducers: (builder) => {

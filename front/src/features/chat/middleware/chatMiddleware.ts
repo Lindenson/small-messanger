@@ -1,7 +1,8 @@
 import type {Middleware, PayloadAction} from "@reduxjs/toolkit";
 import type {WSMessage} from "@/infrastructure/types.ts";
-import type {AppDispatch} from "@/store/store.ts";
+import type {AppDispatch, RootState} from "@/store/store.ts";
 import {chatApi} from "@/features/chat/rest/chatApi.ts";
+import {chatMessagesService} from "@/features/chat/model/services/chatMessages.service.ts";
 import {wireToChatMessage} from "@/features/chat/model/mapper.ts";
 import {buildChatAck, buildReadIn, type WireMessage} from "@/features/chat/model/schema/wireMessage.schema.ts";
 import {markChatUnread, setPeerLastReadId, setTyping} from "@/features/chat/model/slices/chatUiSlice.ts";
@@ -61,11 +62,14 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
             // frame below.
 
             // If this conversation isn't in the chat list yet (first message from a new peer),
-            // refetch the list so the chat appears. The backend returns it once a message exists.
+            // refetch the list so the chat appears — but via the preserve-selected helper, NOT a bare
+            // invalidateTags: a plain refetch would drop a freshly-created, still-hidden chat the user
+            // has selected (GET /chats omits message-less convs), and the dangling-close would then
+            // shut their open compose window.
             const summaries = chatApi.endpoints.getChats.select({myId})(st)?.data;
             if (!summaries?.some((s) => s.conversationId === chatId)) {
-                logger.debug("CHAT_OUT for unknown conversation, invalidating chat list", chatId);
-                dispatch(chatApi.util.invalidateTags(["Chats"]));
+                logger.debug("CHAT_OUT for unknown conversation, refreshing chat list", chatId);
+                chatMessagesService.refetchChatsPreservingSelected(dispatch, store.getState as () => RootState);
             }
 
             // ACK delivery (SENT → DELIVERED; advances the server GC watermark).

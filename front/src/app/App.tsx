@@ -1,12 +1,14 @@
 import "./App.css";
 import {BrowserRouter, Route, Routes} from "react-router-dom";
 import {lazy, Suspense, useEffect} from "react";
-import {useDispatch} from "react-redux";
+import {useDispatch, useSelector} from "react-redux";
 import {Toaster} from "react-hot-toast";
 
+import type {RootState} from "@/store/store.ts";
 import {RequireAuth} from "@/features/auth/ui/RequireAuth";
 import {useWebSocketConnection} from "@/infrastructure/hooks/useWebSocketConnection.ts";
 import {markInitialized} from "@/features/auth/slices/userSlice.ts";
+import {isNotLogged} from "@/shared/utils/checks.ts";
 import {ErrorBoundary} from "@/shared/ui/ErrorBoundary.tsx";
 import {armNotificationPermissionOnGesture, requestNotificationPermission} from "@/shared/sound/notify.ts";
 import {ensurePushSubscription} from "@/features/notifications/push.ts";
@@ -31,8 +33,15 @@ function App() {
         dispatch(markInitialized());
         requestNotificationPermission();                                  // desktop: mount-time request is honored
         armNotificationPermissionOnGesture(() => { ensurePushSubscription(); }); // mobile: request on first tap, then subscribe
-        ensurePushSubscription();                                         // already-granted: (re)register the push subscription
     }, [dispatch]);
+
+    // (Re)register the push subscription whenever a user becomes logged in — NOT just on page load.
+    // Login is pure SPA navigation (no reload), so without this a user who logs in after someone
+    // logged out on the same device is never registered with the backend and gets no Web Push.
+    const userId = useSelector((s: RootState) => s.user.id);
+    useEffect(() => {
+        if (!isNotLogged(userId)) ensurePushSubscription();
+    }, [userId]);
 
     return (
         <ErrorBoundary>

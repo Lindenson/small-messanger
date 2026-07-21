@@ -11,7 +11,6 @@ import {useContacts} from "../../contacts/hooks/useContacts.ts";
 import {logger} from "@/shared/logger/logger.ts";
 import type {Contact} from "@/features/contacts/model/schema/domainContract.schema.ts";
 import {chatMessagesService} from "@/features/chat/model/services/chatMessages.service.ts";
-import {preserveSelectedConversation} from "@/features/chat/model/preserveSelectedConversation.ts";
 import {chatApi, useBlockChatMutation, useUnblockChatMutation, useDeleteMessageMutation, useAttachmentUploadUrlMutation, useAttachmentConfirmMutation, useAttachmentDownloadUrlMutation} from "@/features/chat/rest/chatApi.ts";
 import {retryMessage as retryOutboxMessage, discardMessage as discardOutboxMessage} from "@/features/chat/model/slices/outboxSlice.ts";
 import type {ChatMessageStatus} from "@/features/chat/model/types.ts";
@@ -197,33 +196,23 @@ export function useChat() {
     ====================== */
     const wsStatus = useSelector((state: RootState) => state.ws.status);
 
-    // Refetch the chat LIST so a conversation the peer started while we were offline appears — but
-    // PRESERVE the currently-selected conversation if the refetch drops it. A just-created chat has
-    // no messages yet, so the backend hides it from GET /chats; AddUser injects it into this cache
-    // and it is the source of truth until the first message. A blanket refetch would drop it (the
-    // "chat vanishes right after create" regression), so re-inject the selected summary if the fresh
-    // list is missing it.
+    // Refetch the chat list preserving a freshly-created (still-hidden) selected chat — the shared
+    // helper is the single funnel for every getChats refresh (see chatMessages.service).
     const catchUpChats = useCallback(() => {
-        const before = chatApi.endpoints.getChats.select({myId})(store.getState())?.data;
-        dispatch(chatApi.endpoints.getChats.initiate({myId}, {forceRefetch: true}))
-            .unwrap()
-            .then(() => {
-                dispatch(chatApi.util.updateQueryData("getChats", {myId}, (draft) =>
-                    preserveSelectedConversation(draft ?? [], before, selectedChatId)));
-            })
-            .catch(() => { /* best-effort catch-up */ });
-    }, [myId, selectedChatId, dispatch, store]);
+        chatMessagesService.refetchChatsPreservingSelected(dispatch, store.getState);
+    }, [dispatch, store]);
 
+    // Read-through ONLY on the actual disconnected→connected transition — NOT on every chat switch.
+    // (The effect deps include selectedChatId so its closure stays fresh, but the transition guard
+    // stops it re-running on a plain chat open, which was causing a getChats+history refetch storm.)
+    const prevWsRef = useRef(wsStatus);
     useEffect(() => {
-        if (wsStatus !== "connected") return;
-        // resend anything still queued (idempotent by messageId)
-        dispatch(flushOutbox());
-        // read-through on (re)connect so nothing is missed: refresh the chat list (preserving a
-        // freshly-created chat) and the open chat's history.
-        catchUpChats();
-        if (selectedChatId) {
-            reloadChatHistory().catch(logger.error);
-        }
+        const was = prevWsRef.current;
+        prevWsRef.current = wsStatus;
+        if (wsStatus !== "connected" || was === "connected") return;
+        dispatch(flushOutbox());                 // resend anything still queued (idempotent)
+        catchUpChats();                          // refresh the chat list (new convs while offline)
+        if (selectedChatId) reloadChatHistory().catch(logger.error); // open chat's missed history
     }, [wsStatus, selectedChatId, reloadChatHistory, catchUpChats, dispatch]);
 
     // Catch up over REST on RESUME from background / network recovery — independent of the WS state.
