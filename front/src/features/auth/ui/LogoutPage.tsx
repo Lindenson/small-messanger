@@ -9,6 +9,7 @@ import {chatApi} from "@/features/chat/rest/chatApi.ts";
 import {contactsApi} from "@/features/contacts/rest/contactsApi.ts";
 import {idsApi} from "@/features/directory/idsApi.ts";
 import {clearAllLocalData} from "@/features/chat/db/db.ts";
+import {removePushSubscription} from "@/features/notifications/push.ts";
 
 
 export default function LogoutPage() {
@@ -32,6 +33,9 @@ export default function LogoutPage() {
         setLoading(true);
 
         try {
+            // Drop this device's push subscription while the session cookie is still valid (the
+            // DELETE is cookie-authed) so the next user here doesn't inherit our notifications.
+            await removePushSubscription();
             // Kratos returns the full public logout URL (…/.ory/kratos/public/self-service/logout?token=…).
             // Keep its path/query, just pin to the current origin (handles an internal kratos host).
             const logoutUrl = new URL(await logout());

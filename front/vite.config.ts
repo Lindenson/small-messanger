@@ -41,6 +41,11 @@ export default defineConfig({
         workbox: {
           globPatterns: ["**/*.{js,css,html,png,svg,woff2}"],
           cleanupOutdatedCaches: true,
+          // Pull the Web Push handlers (push / notificationclick) into the generated SW. They live in
+          // /public as plain JS (served verbatim, not precached under a hashed name), so notifications
+          // work when the app is closed/backgrounded — the one thing the page JS can't do while the OS
+          // has suspended the tab. Keeps generateSW (precaching) instead of switching to injectManifest.
+          importScripts: ["push-sw.js"],
           // Chat/IDS/Kratos APIs are outside the SW scope (/messenger-ui/) → never intercepted;
           // only the app shell is precached.
           //

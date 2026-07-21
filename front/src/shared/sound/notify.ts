@@ -57,12 +57,16 @@ export function requestNotificationPermission() {
  * "default"). Requesting on the first tap/click/keypress makes the prompt actually appear. The
  * listeners are one-shot and self-removing, and we only arm when permission is still "default".
  */
-export function armNotificationPermissionOnGesture() {
+export function armNotificationPermissionOnGesture(onGranted?: () => void) {
     try {
         if (!("Notification" in window) || Notification.permission !== "default") return;
         const ask = () => {
             cleanup();
-            try { Notification.requestPermission().catch(() => {}); } catch { /* ignore */ }
+            try {
+                Notification.requestPermission()
+                    .then((p) => { if (p === "granted") onGranted?.(); })
+                    .catch(() => {});
+            } catch { /* ignore */ }
         };
         const cleanup = () => {
             window.removeEventListener("pointerdown", ask);

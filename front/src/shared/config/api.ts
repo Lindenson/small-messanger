@@ -9,6 +9,11 @@ export const MESSENGER_BASE =
 export const MESSENGER_API = `${MESSENGER_BASE}/api`;
 export const MESSENGER_WS_PATH = `${MESSENGER_BASE}/ws`;
 
+// hormiga-webpush edge prefix (Kratos+Oathkeeper): GET /webpush/vapid-public-key (public) and
+// GET/POST/DELETE /webpush/subscriptions (cookie-authed). Host-relative → same-origin session cookie.
+export const WEBPUSH_BASE =
+    (import.meta.env.VITE_WEBPUSH_BASE as string | undefined) ?? "/webpush";
+
 // IDS (KratosGate) admin directory for user search. The edge route (host-relative, same
 // origin) is provided by the platform; the frontend sends the IDS admin key as X-Admin-Key.
 // Override the path with VITE_IDS_URL.
