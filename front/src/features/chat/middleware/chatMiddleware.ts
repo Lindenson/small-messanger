@@ -107,7 +107,10 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
             dispatch(markSent(frame.correlationId));
             const chatId = frame.conversationId ?? selectedChatId;
             const at = frame.serverTimestamp;
-            const serverId = frame.serverMessageId;   // the STORED ULID (backend now returns it)
+            // The STORED server ULID, under whichever field the backend uses (NOT messageId — that
+            // is the ack frame's own id). Reconciling to it lets a just-sent message match the peer's
+            // read boundary (a server ULID) and flip to ✓✓ without waiting for a full history reload.
+            const serverId = frame.serverMessageId ?? frame.serverId ?? frame.storedMessageId;
             if (chatId && (typeof at === "number" || serverId)) {
                 dispatch(
                     chatApi.util.updateQueryData("getChatHistory", {myId, chatId}, (draft) => {

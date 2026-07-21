@@ -14,6 +14,11 @@ export const WireMessageSchema = z
         conversationId: z.string().optional(),
         messageId: z.string().optional(),     // server-assigned ULID (dedup + history cursor)
         serverMessageId: z.string().optional(), // on CHAT_ACK: the STORED message's ULID (vs messageId = the ack frame's own id)
+        // Naming variants for the same "stored server id" on CHAT_ACK — the exact field the live
+        // backend uses could not be captured, so we accept the likely names and reconcile on whichever
+        // is present (never messageId: that is the ack frame's OWN id, not the stored message's).
+        serverId: z.string().optional(),
+        storedMessageId: z.string().optional(),
         correlationId: z.string().optional(),
         senderTimestamp: z.number().optional(),
         senderTimezone: z.string().optional(),
