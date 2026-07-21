@@ -7,7 +7,6 @@ import {MESSENGER_ADMIN_KEY, MESSENGER_API} from "@/shared/config/api.ts";
 import {HISTORY_PAGE_SIZE} from "@/shared/config/chat.ts";
 import {loadHistoryFromDB, saveHistoryToDB} from "@/features/chat/db/db.ts";
 import {setPeerLastReadId} from "@/features/chat/model/slices/chatUiSlice.ts";
-import {isUlid} from "@/shared/ulid/ulid.ts";
 
 // Wire rows (up to a page) → domain messages, then dedup by clientId||id (guards against any
 // duplicate the server returns; history rows normally carry no clientId — see the dedup note).
@@ -55,9 +54,6 @@ export type ChatSummary = {
     blocked: boolean;        // either side blocked → sending is impossible (block is mutual/terminal)
     blockedByMe: boolean;    // I blocked the peer (I can unblock)
     blockedByPeer: boolean;  // the peer blocked me (I can't unblock their side)
-    // The PEER's durable read boundary (their side's receipt — the opposite of my role). A message
-    // I sent with id <= this renders ✓✓. Role-relative: if I'm the client the peer is the master.
-    peerReadReceipt?: string;
 };
 
 export const chatApi = createApi({
@@ -87,23 +83,8 @@ export const chatApi = createApi({
                         blocked: blockedByMe || blockedByPeer,
                         blockedByMe,
                         blockedByPeer,
-                        // Role-relative peer boundary: if I'm the client, the peer is the master, so
-                        // the peer's receipt is masterReadReceipt (and vice versa).
-                        peerReadReceipt: (amClient ? c.masterReadReceipt : c.clientReadReceipt) ?? undefined,
                     };
                 });
-            },
-            // Seed the per-chat read boundary from the durable receipt on every list load (which
-            // happens at app boot, before any chat is opened), so ✓✓ is correct immediately without
-            // waiting to open the conversation. Monotonic + ULID-guarded in the reducer, so a legacy
-            // non-ULID receipt is simply ignored.
-            async onQueryStarted(_arg, {dispatch, queryFulfilled}) {
-                try {
-                    const {data} = await queryFulfilled;
-                    for (const s of data) {
-                        if (s.peerReadReceipt) dispatch(setPeerLastReadId({chatId: s.conversationId, lastReadId: s.peerReadReceipt}));
-                    }
-                } catch { /* boundary seeding is best-effort */ }
             },
             providesTags: ["Chats"],
         }),
@@ -122,6 +103,14 @@ export const chatApi = createApi({
                 const res = await baseQuery(`/chats/${chatId}/messages?limit=${HISTORY_PAGE_SIZE}`);
                 if (res.error) return {error: res.error};
                 const messages = dedupMessages(toMessages(res.data));
+
+                // ✓✓ source of truth (backend contract): the response is an envelope
+                // { messages, peerLastReadId } where peerLastReadId is the peer's read watermark
+                // (a server ULID, or null/legacy). Feed it to chatUi so my messages with
+                // serverMessageId <= peerLastReadId render ✓✓. ULID-guarded + monotonic in the reducer,
+                // so a null or legacy non-ULID watermark is simply ignored (no false ✓✓).
+                const peerLastReadId = (res.data as { peerLastReadId?: string | null } | undefined)?.peerLastReadId;
+                if (peerLastReadId) api.dispatch(setPeerLastReadId({chatId, lastReadId: peerLastReadId}));
 
                 // Re-graft still-queued outbox messages for this chat. A forceRefetch REPLACES the
                 // cache array, wiping the optimistic echoes of not-yet-acked messages; the CHAT_ACK
@@ -148,28 +137,6 @@ export const chatApi = createApi({
                         meta: p.meta,
                     });
                 }
-                // Read state is NOT in the history rows (they carry no status, and there is no
-                // peerLastReadId field) — it lives only in the separate receipts projection
-                // (GET /chats/:id/receipts → [{messageId, status}], status READ once the recipient
-                // read it). Without this fetch, ✓✓ was always missing on a fresh open (the exact
-                // "everything unread when I open history" bug). Derive the peer's read boundary =
-                // the newest of MY messages the peer marked READ. The backend marks a reader's whole
-                // received set READ in one shot, so my READ messages form a prefix and the max READ
-                // id is a safe boundary. Monotonic + ULID-guarded in the reducer.
-                try {
-                    const rc = await baseQuery(`/chats/${chatId}/receipts`);
-                    const receipts = Array.isArray(rc.data) ? (rc.data as { messageId?: string; status?: string }[]) : [];
-                    const readIds = new Set(
-                        receipts.filter((r) => r.status === "READ" && r.messageId).map((r) => r.messageId as string)
-                    );
-                    let boundary: string | undefined;
-                    for (const m of messages) {
-                        if (m.from === myId && readIds.has(m.id) && isUlid(m.id) && (!boundary || m.id > boundary)) {
-                            boundary = m.id;
-                        }
-                    }
-                    if (boundary) api.dispatch(setPeerLastReadId({chatId, lastReadId: boundary}));
-                } catch { /* receipts are best-effort; ✓✓ simply won't advance from this load */ }
                 return {data: messages};
             },
             providesTags: (_r, _e, arg) => [
@@ -223,14 +190,18 @@ export const chatApi = createApi({
         }),
 
         // --------------------
-        // Bulk read receipt (reconnect/fallback; primary path is WS READ_IN).
+        // Bulk read receipt (reconnect/fallback; primary path is WS READ_IN). Per the backend
+        // contract: POST /api/chats/{id}/read?lastReadId=<serverMessageId> — the boundary MUST be a
+        // server ULID (not a local id); the server advances the watermark monotonically.
         // --------------------
         markRead: builder.mutation<
             void,
-            { myId: string; chatId: string }
+            { myId: string; chatId: string; lastReadId?: string }
         >({
-            query: ({chatId}) => ({
-                url: `/chats/${chatId}/read`,
+            query: ({chatId, lastReadId}) => ({
+                url: lastReadId
+                    ? `/chats/${chatId}/read?lastReadId=${encodeURIComponent(lastReadId)}`
+                    : `/chats/${chatId}/read`,
                 method: "POST",
             }),
         }),

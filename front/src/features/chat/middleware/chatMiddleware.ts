@@ -7,7 +7,6 @@ import {buildChatAck, buildReadIn, type WireMessage} from "@/features/chat/model
 import {markChatUnread, setPeerLastReadId, setTyping} from "@/features/chat/model/slices/chatUiSlice.ts";
 import {markSent} from "@/features/chat/model/slices/outboxSlice.ts";
 import {logger} from "@/shared/logger/logger.ts";
-import {isUlid} from "@/shared/ulid/ulid.ts";
 import {playNotificationSound, showDesktopNotification} from "@/shared/sound/notify.ts";
 import i18n from "@/shared/i18n";
 
@@ -107,10 +106,10 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
             dispatch(markSent(frame.correlationId));
             const chatId = frame.conversationId ?? selectedChatId;
             const at = frame.serverTimestamp;
-            // The STORED server ULID, under whichever field the backend uses (NOT messageId — that
-            // is the ack frame's own id). Reconciling to it lets a just-sent message match the peer's
-            // read boundary (a server ULID) and flip to ✓✓ without waiting for a full history reload.
-            const serverId = frame.serverMessageId ?? frame.serverId ?? frame.storedMessageId;
+            // The STORED server ULID (backend contract: CHAT_ACK.serverMessageId — capture it!).
+            // NOT messageId (that is the ack frame's own id). Reconciling my optimistic echo to it
+            // lets a just-sent message match the peer's read watermark and flip to ✓✓ without a reload.
+            const serverId = frame.serverMessageId;
             if (chatId && (typeof at === "number" || serverId)) {
                 dispatch(
                     chatApi.util.updateQueryData("getChatHistory", {myId, chatId}, (draft) => {
@@ -129,20 +128,11 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
         }
 
         case "READ_OUT": {
-            // The peer read the conversation → every message I have sent so far is now read. The
-            // backend's READ_OUT frame carries NO usable boundary id (its messageId is a synthetic
-            // "read-<conv>-<reader>" marker, not a ULID), so derive the boundary from the history
-            // cache: the newest of MY OWN sent messages (a real server ULID). ULID-guarded + monotonic
-            // in the reducer.
-            const chatId = frame.conversationId;
-            if (!chatId) break;
-            const data = chatApi.endpoints.getChatHistory.select({myId, chatId})(st)?.data;
-            if (data) {
-                let boundary: string | undefined;
-                for (const m of data) {
-                    if (m.from === myId && isUlid(m.id) && (!boundary || m.id > boundary)) boundary = m.id;
-                }
-                if (boundary) dispatch(setPeerLastReadId({chatId, lastReadId: boundary}));
+            // Live peer read progress (backend contract): correlationId = the peer's new read-up-to
+            // (a server ULID). Advance the ✓✓ watermark without refetching history. ULID-guarded +
+            // monotonic in the reducer.
+            if (frame.conversationId && frame.correlationId) {
+                dispatch(setPeerLastReadId({chatId: frame.conversationId, lastReadId: frame.correlationId}));
             }
             break;
         }

@@ -14,11 +14,6 @@ export const WireMessageSchema = z
         conversationId: z.string().optional(),
         messageId: z.string().optional(),     // server-assigned ULID (dedup + history cursor)
         serverMessageId: z.string().optional(), // on CHAT_ACK: the STORED message's ULID (vs messageId = the ack frame's own id)
-        // Naming variants for the same "stored server id" on CHAT_ACK — the exact field the live
-        // backend uses could not be captured, so we accept the likely names and reconcile on whichever
-        // is present (never messageId: that is the ack frame's OWN id, not the stored message's).
-        serverId: z.string().optional(),
-        storedMessageId: z.string().optional(),
         correlationId: z.string().optional(),
         senderTimestamp: z.number().optional(),
         senderTimezone: z.string().optional(),
@@ -83,24 +78,16 @@ export function buildChatAck(delivered: WireMessage): WireMessage {
 }
 
 /**
- * Read receipt (DELIVERED → READ; pushes READ_OUT to the peer). Same full-frame requirement.
- *
- * The server records `messageId` verbatim as this reader's read boundary ({client,master}ReadReceipt
- * in GET /chats), which the PEER uses to render ✓✓. So `messageId` MUST be the id (a server ULID) of
- * the last message the reader has read — pass `lastReadMessageId`. Falls back to a fresh id only when
- * none is known (e.g. an empty chat), which records no meaningful boundary but keeps the frame valid.
+ * Read receipt: advance this side's read watermark. Per the backend contract, the boundary rides in
+ * `correlationId` = the largest SERVER messageId the reader has rendered (from CHAT_OUT.messageId or
+ * history) — a server ULID only, monotonic (forward-only, enforced server-side). `messageId` is just
+ * the frame's own event id. The peer then reads this back as `peerLastReadId` on GET /messages.
  */
 export function buildReadIn(conversationId: string, recipientId: string, lastReadMessageId?: string): WireMessage {
     return {
         type: "READ_IN",
-        // The backend stores THIS frame's messageId verbatim as the reader's read receipt
-        // (conversation.{client,master}_read_receipt → GET /chats), and the PEER compares it against
-        // message ids to render ✓✓. So messageId MUST be the boundary — the server ULID of the last
-        // message read — pointing into the SAME id space as messages. Sending newId() here stored a
-        // meaningless random UUID (not comparable to any message id), which is why the durable
-        // receipt never resolved to ✓✓. Fall back to a fresh id only for an empty chat (no boundary).
-        messageId: lastReadMessageId ?? newId(),
-        correlationId: lastReadMessageId,
+        messageId: newId(),                  // the frame's own event id (not the boundary)
+        correlationId: lastReadMessageId,     // ← the read boundary (largest rendered server ULID)
         recipientId,
         conversationId,
         senderTimestamp: Date.now(),
