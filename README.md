@@ -22,9 +22,27 @@ session from the same browser window (same-origin cookie), so there is no separa
 - **Chat list** from `GET /api/chats`; participant **names from the IDS directory** with a presence fallback.
 - **Messaging features:** read receipts (✓/✓✓), typing indicator, presence online/offline, block/unblock,
   delete message, **attachments** (MinIO two-phase presigned upload/download) with **inline image thumbnails**.
+- **Read receipts (✓✓) — server-ULID watermark, per side (backend contract):**
+  - Mark read: `READ_IN` with `correlationId` = the largest **server** messageId rendered (from
+    `CHAT_OUT.messageId` or history); REST fallback `POST /api/chats/{id}/read?lastReadId=<serverMessageId>`.
+    Server-id only, monotonic (forward-only).
+  - Show ✓✓: `GET /api/chats/{id}/messages` returns `{ messages, peerLastReadId }`; my message is read ⇔
+    `myMsg.serverMessageId <= peerLastReadId` (ULID string compare). My own `serverMessageId` is captured
+    from `CHAT_ACK`. Live updates via `READ_OUT.correlationId`.
+  - Soft/best-effort (may lag, self-heals on the next `READ_IN`); a null/legacy-non-ULID watermark is
+    ignored (no false ✓✓). id-space: recipient ← `CHAT_OUT.messageId`, sender ← `CHAT_ACK.serverMessageId`;
+    the local (client) id rides in `correlationId` and never participates in the read mark.
+- **Web Push (offline notifications):** service worker `push`/`notificationclick` handlers + a subscription
+  lifecycle (`features/notifications/push.ts`) against the **hormiga-webpush** service behind the edge
+  (`/webpush/**`, VAPID). Client + service are live; delivery when the app is fully closed additionally
+  requires the messenger to emit the `chat.offline.notify` Kafka event (backend owner — see hormiga-webpush
+  `DESIGN.md` §2). The webpush consumer idles at zero lag until then.
 - **Video calls:** offer/answer/ICE signaling + a coturn **TURN** server; incoming-call modal with caller name.
+  Glare-guarded (a second incoming offer is declined, not clobbered); the peer connection + camera/mic are
+  torn down on unmount.
 - **Auth:** startup session check → `/login`; **logout** kills the Kratos session via a background request
-  and routes to our own `/login` (no visible bounce to Kratos, no Kratos config change).
+  and routes to our own `/login` (no visible bounce to Kratos, no Kratos config change). Logout also wipes
+  the outbox + cached history (Redux + IndexedDB) so nothing leaks to the next user on a shared device.
 
 **Run / deploy:**
 
@@ -167,7 +185,8 @@ Call reconnection
 
 Call duration tracking
 
-Push notifications
+Push notifications — _implemented_ (Web Push via hormiga-webpush; pending only the backend
+`chat.offline.notify` producer, see the integration section above)
 
 End-to-end encryption
 

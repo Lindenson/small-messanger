@@ -33,7 +33,11 @@ Legend: ✅ done & browser-verified (Playwright) · 🟡 implemented, not/partly
   fixed the redelivery loop / watermark stall (stability)
 - 🟡 Outbox retry on reconnect (flushOutbox on connect) — mechanism present, not stress-tested
 - ✅ Ordering by ULID — after CHAT_ACK the chat history is refetched (optimistic client-id row → server row), giving server ULID order
-- ✅ Read receipts: READ_IN on open/view → READ_OUT → ✓ sent / ✓✓ read (verified two-window)
+- ✅ Read receipts (✓✓) — server-ULID watermark per side (backend contract): READ_IN `correlationId` =
+  largest rendered server ULID; ✓✓ from `peerLastReadId` on `GET /messages` (`myMsg.serverMessageId <=
+  peerLastReadId`, ULID compare); own serverMessageId ← `CHAT_ACK`; live via `READ_OUT.correlationId`.
+  Null/legacy-non-ULID watermark ignored (no false ✓✓); soft/self-healing. Existing convs warm-started
+  by backfilling watermarks from delivery facts.
 - ❌ Delivered status surfaced (SENT→DELIVERED) — backend sends no delivered-to-sender event (would need backend)
 - ✅ Typing indicator (TYPING_IN throttled → TYPING_OUT → "печатает…", auto-clear ~4s) — verified
 - ✅ Delete single message (🗑 on own bubble; works after ack-reconcile gives server id; 409 if frozen) — verified
