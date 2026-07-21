@@ -234,7 +234,23 @@ export const chatApi = createApi({
                 if (clientMessageId) q.set("clientMessageId", clientMessageId);
                 return { url: `/chats/${chatId}/messages?${q.toString()}`, method: "DELETE" };
             },
-            invalidatesTags: (_r, _e, arg) => [{ type: "Chat", id: arg.chatId }],
+            // Remove the one message from the history cache in place — do NOT invalidate the "Chat"
+            // tag. An invalidation forces getChatHistory to refetch the ENTIRE conversation just to
+            // drop a single row (the exact refetch we were trying to avoid). Match on the server ULID
+            // (backendId → m.id) OR the original client id (clientMessageId → m.clientId/m.id), so a
+            // not-yet-reconciled message deletes locally too. Undo the patch if the request fails.
+            async onQueryStarted({ chatId, backendId, clientMessageId }, { dispatch, getState, queryFulfilled }) {
+                const myId = (getState() as { user?: { id?: string } })?.user?.id;
+                if (!myId) return;
+                const patch = dispatch(chatApi.util.updateQueryData("getChatHistory", { myId, chatId }, (draft) => {
+                    if (!Array.isArray(draft)) return;
+                    const i = draft.findIndex((m) =>
+                        (backendId && m.id === backendId) ||
+                        (clientMessageId && (m.clientId === clientMessageId || m.id === clientMessageId)));
+                    if (i >= 0) draft.splice(i, 1);
+                }));
+                try { await queryFulfilled; } catch { patch.undo(); }
+            },
         }),
 
         // Attachments (two-phase presigned upload, ADR-010).
