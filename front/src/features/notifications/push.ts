@@ -62,11 +62,13 @@ export async function ensurePushSubscription(): Promise<void> {
         const appServerKey = urlBase64ToUint8Array(key);
 
         let sub = await reg.pushManager.getSubscription();
-        // If the existing subscription is bound to a DIFFERENT VAPID key than the server now signs
-        // with (key rotated, or it was created with a stale key), the push service — Apple especially —
-        // rejects our signed sends with BadJwtToken. Drop the stale one and re-subscribe with the
-        // current key so the subscription↔key binding is consistent again.
-        if (sub && !applicationServerKeyMatches(sub.options?.applicationServerKey, appServerKey)) {
+        // Re-subscribe ONLY when the existing subscription's key is READABLE and genuinely DIFFERENT
+        // from the current VAPID key. Some browsers (notably iOS Safari) return null for
+        // options.applicationServerKey even for a valid subscription — treating that as "mismatch"
+        // would unsubscribe a working subscription on every call (churn), so we leave it alone unless
+        // we can positively confirm a different key.
+        const existingKey = sub?.options?.applicationServerKey;
+        if (sub && existingKey && !applicationServerKeyMatches(existingKey, appServerKey)) {
             logger.debug("push: VAPID key changed — re-subscribing");
             await sub.unsubscribe().catch(() => { /* ignore */ });
             sub = null;

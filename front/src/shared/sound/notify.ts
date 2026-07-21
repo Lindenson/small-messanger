@@ -103,7 +103,12 @@ export function showDesktopNotification(title: string, body: string) {
             tag: "chat-message",     // collapse rapid messages into one; renotify re-alerts
             renotify: true,
         } as NotificationOptions;
-        if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
+        // Use the SW registration whenever the browser has service workers — NOT gated on
+        // navigator.serviceWorker.controller. `ready` resolves to the active registration even when
+        // this page isn't "controlled" (e.g. right after a fresh SW install with no reload), and
+        // reg.showNotification works regardless of control. Gating on .controller wrongly fell through
+        // to `new Notification()` (which THROWS on mobile) → notifications silently stopped.
+        if ("serviceWorker" in navigator) {
             navigator.serviceWorker.ready
                 .then((reg) => reg.showNotification(title, opts))
                 .catch(() => { try { new Notification(title, opts); } catch { /* ignore */ } });
