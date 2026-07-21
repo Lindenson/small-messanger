@@ -88,8 +88,14 @@ export function buildChatAck(delivered: WireMessage): WireMessage {
 export function buildReadIn(conversationId: string, recipientId: string, lastReadMessageId?: string): WireMessage {
     return {
         type: "READ_IN",
-        messageId: newId(),                       // a fresh event id for the frame
-        correlationId: lastReadMessageId,          // the read boundary — backend reads lastReadId HERE
+        // The backend stores THIS frame's messageId verbatim as the reader's read receipt
+        // (conversation.{client,master}_read_receipt → GET /chats), and the PEER compares it against
+        // message ids to render ✓✓. So messageId MUST be the boundary — the server ULID of the last
+        // message read — pointing into the SAME id space as messages. Sending newId() here stored a
+        // meaningless random UUID (not comparable to any message id), which is why the durable
+        // receipt never resolved to ✓✓. Fall back to a fresh id only for an empty chat (no boundary).
+        messageId: lastReadMessageId ?? newId(),
+        correlationId: lastReadMessageId,
         recipientId,
         conversationId,
         senderTimestamp: Date.now(),

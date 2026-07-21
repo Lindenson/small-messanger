@@ -55,6 +55,9 @@ export type ChatSummary = {
     blocked: boolean;        // either side blocked → sending is impossible (block is mutual/terminal)
     blockedByMe: boolean;    // I blocked the peer (I can unblock)
     blockedByPeer: boolean;  // the peer blocked me (I can't unblock their side)
+    // The PEER's durable read boundary (their side's receipt — the opposite of my role). A message
+    // I sent with id <= this renders ✓✓. Role-relative: if I'm the client the peer is the master.
+    peerReadReceipt?: string;
 };
 
 export const chatApi = createApi({
@@ -84,8 +87,23 @@ export const chatApi = createApi({
                         blocked: blockedByMe || blockedByPeer,
                         blockedByMe,
                         blockedByPeer,
+                        // Role-relative peer boundary: if I'm the client, the peer is the master, so
+                        // the peer's receipt is masterReadReceipt (and vice versa).
+                        peerReadReceipt: (amClient ? c.masterReadReceipt : c.clientReadReceipt) ?? undefined,
                     };
                 });
+            },
+            // Seed the per-chat read boundary from the durable receipt on every list load (which
+            // happens at app boot, before any chat is opened), so ✓✓ is correct immediately without
+            // waiting to open the conversation. Monotonic + ULID-guarded in the reducer, so a legacy
+            // non-ULID receipt is simply ignored.
+            async onQueryStarted(_arg, {dispatch, queryFulfilled}) {
+                try {
+                    const {data} = await queryFulfilled;
+                    for (const s of data) {
+                        if (s.peerReadReceipt) dispatch(setPeerLastReadId({chatId: s.conversationId, lastReadId: s.peerReadReceipt}));
+                    }
+                } catch { /* boundary seeding is best-effort */ }
             },
             providesTags: ["Chats"],
         }),
