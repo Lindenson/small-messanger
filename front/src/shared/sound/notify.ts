@@ -48,6 +48,34 @@ export function requestNotificationPermission() {
 }
 
 /**
+ * Arm a ONE-TIME notification-permission request tied to the first user gesture.
+ *
+ * Mobile browsers (notably installed iOS PWAs, and Android Chrome after a dismissal) ignore or
+ * suppress a `Notification.requestPermission()` that isn't triggered by a user gesture — so the
+ * mount-time requestNotificationPermission() call silently no-ops there and notifications never
+ * get granted (exactly what happens after site data is cleared, which resets the grant to
+ * "default"). Requesting on the first tap/click/keypress makes the prompt actually appear. The
+ * listeners are one-shot and self-removing, and we only arm when permission is still "default".
+ */
+export function armNotificationPermissionOnGesture() {
+    try {
+        if (!("Notification" in window) || Notification.permission !== "default") return;
+        const ask = () => {
+            cleanup();
+            try { Notification.requestPermission().catch(() => {}); } catch { /* ignore */ }
+        };
+        const cleanup = () => {
+            window.removeEventListener("pointerdown", ask);
+            window.removeEventListener("keydown", ask);
+            window.removeEventListener("touchend", ask);
+        };
+        window.addEventListener("pointerdown", ask, {once: true});
+        window.addEventListener("keydown", ask, {once: true});
+        window.addEventListener("touchend", ask, {once: true});
+    } catch { /* ignore */ }
+}
+
+/**
  * Show a notification if allowed (used when the app is backgrounded / the tab is hidden).
  *
  * Prefers the service worker's `showNotification` over the page-context `new Notification()`:

@@ -7,6 +7,7 @@ import {buildChatAck, buildReadIn, type WireMessage} from "@/features/chat/model
 import {markChatUnread, setPeerLastReadId, setTyping} from "@/features/chat/model/slices/chatUiSlice.ts";
 import {markSent} from "@/features/chat/model/slices/outboxSlice.ts";
 import {logger} from "@/shared/logger/logger.ts";
+import {isUlid} from "@/shared/ulid/ulid.ts";
 import {playNotificationSound, showDesktopNotification} from "@/shared/sound/notify.ts";
 import i18n from "@/shared/i18n";
 
@@ -53,6 +54,16 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
                     if (!dup) draft.push(msg);
                 })
             );
+
+            // Extra frontend safeguard for the peer's ✓✓: receiving a message FROM the peer means the
+            // peer is active in this conversation and has necessarily seen my earlier messages. So
+            // advance the peer's read boundary to this incoming message's id (a server ULID) — every
+            // message I sent before it (id < this id, ULIDs are monotonic) then correctly renders ✓✓,
+            // even if the dedicated READ_OUT receipt is delayed or dropped. Monotonic + ULID-guarded
+            // in the reducer, so it never regresses and a non-ULID id is ignored.
+            if (frame.senderId && frame.senderId !== myId && isUlid(msg.id)) {
+                dispatch(setPeerLastReadId({chatId, lastReadId: msg.id}));
+            }
 
             // If this conversation isn't in the chat list yet (first message from a new peer),
             // refetch the list so the chat appears. The backend returns it once a message exists.

@@ -8,7 +8,7 @@ import {RequireAuth} from "@/features/auth/ui/RequireAuth";
 import {useWebSocketConnection} from "@/infrastructure/hooks/useWebSocketConnection.ts";
 import {markInitialized} from "@/features/auth/slices/userSlice.ts";
 import {ErrorBoundary} from "@/shared/ui/ErrorBoundary.tsx";
-import {requestNotificationPermission} from "@/shared/sound/notify.ts";
+import {armNotificationPermissionOnGesture, requestNotificationPermission} from "@/shared/sound/notify.ts";
 
 // Route-level code splitting: keep the initial bundle small (each screen loads on demand).
 const Messenger = lazy(() => import("@/pages/Messenger"));
@@ -28,7 +28,8 @@ function App() {
     const dispatch = useDispatch();
     useEffect(() => {
         dispatch(markInitialized());
-        requestNotificationPermission();
+        requestNotificationPermission();           // desktop: mount-time request is honored
+        armNotificationPermissionOnGesture();      // mobile: request on first tap (mount-time is ignored there)
     }, [dispatch]);
 
     return (
