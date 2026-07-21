@@ -38,6 +38,10 @@ export default function AddContactPage() {
     const {data: me} = useGetIdsUserQuery(myId, {skip: isNotLogged(myId)});
     const myRole = (me?.role ?? "").toLowerCase();
 
+    // The caller's conversations — to reuse an existing chat with a counterpart instead of minting
+    // a second one (see startChat). Shares the cache with the chat list (RTK Query dedups).
+    const {data: existingChats} = chatApi.useGetChatsQuery({myId}, {skip: isNotLogged(myId)});
+
     // Debounced, server-side, paginated search (IDS /users/search, pg_trgm) — no
     // full directory download, no client-side filtering.
     const MIN_CHARS = 2;
@@ -80,15 +84,32 @@ export default function AddContactPage() {
     }
 
     async function startChat(other: IdsUser) {
+        // Reuse an existing conversation with this counterpart if one is already in the list, in
+        // EITHER role direction — don't mint a second one. This is what caused "two same-named chats":
+        // a conversation is keyed by the ordered (clientId, masterId) tuple, so creating from the
+        // opposite side (e.g. after the peer deleted it and the other party starts anew) with swapped
+        // roles produced a distinct conversation for the same two people. Opening the existing one
+        // (getChats maps counterpartId regardless of role) avoids the duplicate.
+        const existing = existingChats?.find((s) => s.counterpartId === other.id);
+        if (existing) {
+            dispatch(setSelectedChatId(existing.conversationId));
+            navigate("/");
+            return;
+        }
+
         const otherRole = (other.role ?? "").toLowerCase();
-        // Assign clientId/masterId for the (me, other) pair using known roles.
+        // Assign clientId/masterId for the (me, other) pair. When the two roles DISAMBIGUATE (one
+        // client, one master) both sides compute the same tuple. Otherwise (same role, or unknown)
+        // fall back to a DETERMINISTIC ordering by id — NOT "whoever initiated" — so a create from
+        // either side yields the identical tuple and createChat stays idempotent (no swapped-role dup).
         let clientId: string, masterId: string;
-        if (myRole === "master" || otherRole === "client") {
-            masterId = myId; clientId = other.id;
-        } else if (myRole === "client" || otherRole === "master") {
-            clientId = myId; masterId = other.id;
+        const myIsMaster = myRole === "master", myIsClient = myRole === "client";
+        const otherIsMaster = otherRole === "master", otherIsClient = otherRole === "client";
+        if ((myIsMaster && otherIsClient) || (myIsClient && otherIsMaster)) {
+            if (myIsMaster) { masterId = myId; clientId = other.id; }
+            else { clientId = myId; masterId = other.id; }
         } else {
-            clientId = myId; masterId = other.id; // fallback (roles unknown)
+            [clientId, masterId] = [myId, other.id].sort();
         }
         try {
             const conv = await createChat({clientId, masterId, metadata: {}}).unwrap();

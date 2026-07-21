@@ -22,8 +22,14 @@ hydrateStore(store);
 // bundle. This is what un-traps a client stuck on an old cached build (browser OR installed PWA).
 if ("serviceWorker" in navigator) {
     let reloaded = false;
+    // Only reload when a NEW worker REPLACES an existing controller (a fresh deploy) — that is when
+    // the running page could be a stale precached bundle. On the FIRST-EVER control (no prior
+    // controller, e.g. first visit or right after clearing site data), clientsClaim also fires
+    // controllerchange, but the page already loaded the fresh bundle, so reloading there is pointless
+    // and shows a jarring black flash on every "cold" open (esp. mobile PWA). Skip it.
+    const hadController = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.addEventListener("controllerchange", () => {
-        if (reloaded) return;
+        if (reloaded || !hadController) return;
         reloaded = true;
         // Flush the outbox before reloading: persistence is debounced (400ms), so a message queued
         // in that window would otherwise be lost when the fresh SW forces this reload.
