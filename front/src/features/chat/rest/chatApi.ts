@@ -6,6 +6,7 @@ import {MESSENGER_ADMIN_KEY, MESSENGER_API} from "@/shared/config/api.ts";
 import {HISTORY_PAGE_SIZE} from "@/shared/config/chat.ts";
 import {loadHistoryFromDB, saveHistoryToDB} from "@/features/chat/db/db.ts";
 import {setPeerLastReadId} from "@/features/chat/model/slices/chatUiSlice.ts";
+import {isUlid} from "@/shared/ulid/ulid.ts";
 
 // Wire rows (up to a page) → domain messages, then dedup by clientId||id (guards against any
 // duplicate the server returns; history rows normally carry no clientId — see the dedup note).
@@ -98,14 +99,33 @@ export const chatApi = createApi({
             ChatMessage[],
             { myId: string; chatId: string }
         >({
-            async queryFn({chatId}, api, _extra, baseQuery) {
+            async queryFn({myId, chatId}, api, _extra, baseQuery) {
                 const res = await baseQuery(`/chats/${chatId}/messages?limit=${HISTORY_PAGE_SIZE}`);
                 if (res.error) return {error: res.error};
-                // The response is a HistoryPage envelope { messages, peerLastReadId }. Feed the peer's
-                // read boundary into chatUi so my sent messages render ✓✓ (id <= peerLastReadId).
-                const peerLastReadId = (res.data as { peerLastReadId?: string | null } | undefined)?.peerLastReadId;
-                if (peerLastReadId) api.dispatch(setPeerLastReadId({chatId, lastReadId: peerLastReadId}));
-                return {data: dedupMessages(toMessages(res.data))};
+                const messages = dedupMessages(toMessages(res.data));
+                // Read state is NOT in the history rows (they carry no status, and there is no
+                // peerLastReadId field) — it lives only in the separate receipts projection
+                // (GET /chats/:id/receipts → [{messageId, status}], status READ once the recipient
+                // read it). Without this fetch, ✓✓ was always missing on a fresh open (the exact
+                // "everything unread when I open history" bug). Derive the peer's read boundary =
+                // the newest of MY messages the peer marked READ. The backend marks a reader's whole
+                // received set READ in one shot, so my READ messages form a prefix and the max READ
+                // id is a safe boundary. Monotonic + ULID-guarded in the reducer.
+                try {
+                    const rc = await baseQuery(`/chats/${chatId}/receipts`);
+                    const receipts = Array.isArray(rc.data) ? (rc.data as { messageId?: string; status?: string }[]) : [];
+                    const readIds = new Set(
+                        receipts.filter((r) => r.status === "READ" && r.messageId).map((r) => r.messageId as string)
+                    );
+                    let boundary: string | undefined;
+                    for (const m of messages) {
+                        if (m.from === myId && readIds.has(m.id) && isUlid(m.id) && (!boundary || m.id > boundary)) {
+                            boundary = m.id;
+                        }
+                    }
+                    if (boundary) api.dispatch(setPeerLastReadId({chatId, lastReadId: boundary}));
+                } catch { /* receipts are best-effort; ✓✓ simply won't advance from this load */ }
+                return {data: messages};
             },
             providesTags: (_r, _e, arg) => [
                 {type: "Chat", id: arg.chatId},

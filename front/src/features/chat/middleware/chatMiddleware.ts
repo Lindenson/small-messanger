@@ -55,15 +55,11 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
                 })
             );
 
-            // Extra frontend safeguard for the peer's ✓✓: receiving a message FROM the peer means the
-            // peer is active in this conversation and has necessarily seen my earlier messages. So
-            // advance the peer's read boundary to this incoming message's id (a server ULID) — every
-            // message I sent before it (id < this id, ULIDs are monotonic) then correctly renders ✓✓,
-            // even if the dedicated READ_OUT receipt is delayed or dropped. Monotonic + ULID-guarded
-            // in the reducer, so it never regresses and a non-ULID id is ignored.
-            if (frame.senderId && frame.senderId !== myId && isUlid(msg.id)) {
-                dispatch(setPeerLastReadId({chatId, lastReadId: msg.id}));
-            }
+            // NOTE: we do NOT infer the peer's read state from an incoming message. Receiving a
+            // reply does not imply the peer read my earlier messages — messages can cross (I send A,
+            // the peer sends B without having seen A), which would light up a false ✓✓. The peer's
+            // read state comes only from the receipts projection (history load) and the READ_OUT
+            // frame below.
 
             // If this conversation isn't in the chat list yet (first message from a new peer),
             // refetch the list so the chat appears. The backend returns it once a message exists.
@@ -130,11 +126,20 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
         }
 
         case "READ_OUT": {
-            // The peer read up to a boundary message ("read up to X"): the boundary ULID rides in
-            // correlationId. Store it as the conversation's read boundary → my messages with
-            // id <= peerLastReadId render ✓✓. Monotonic in the reducer.
-            if (frame.conversationId && frame.correlationId) {
-                dispatch(setPeerLastReadId({chatId: frame.conversationId, lastReadId: frame.correlationId}));
+            // The peer read the conversation → every message I have sent so far is now read. The
+            // backend's READ_OUT frame carries NO usable boundary id (its messageId is a synthetic
+            // "read-<conv>-<reader>" marker, not a ULID), so derive the boundary from the history
+            // cache: the newest of MY OWN sent messages (a real server ULID). ULID-guarded + monotonic
+            // in the reducer.
+            const chatId = frame.conversationId;
+            if (!chatId) break;
+            const data = chatApi.endpoints.getChatHistory.select({myId, chatId})(st)?.data;
+            if (data) {
+                let boundary: string | undefined;
+                for (const m of data) {
+                    if (m.from === myId && isUlid(m.id) && (!boundary || m.id > boundary)) boundary = m.id;
+                }
+                if (boundary) dispatch(setPeerLastReadId({chatId, lastReadId: boundary}));
             }
             break;
         }
