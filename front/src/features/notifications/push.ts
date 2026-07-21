@@ -19,6 +19,17 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
     return out;
 }
 
+// True iff an existing subscription's applicationServerKey equals the current server VAPID key
+// (byte-for-byte). A mismatch means the subscription is bound to a stale key and must be recreated,
+// or the push service (Apple → BadJwtToken) will reject signed sends.
+export function applicationServerKeyMatches(existing: ArrayBuffer | null | undefined, want: Uint8Array): boolean {
+    if (!existing) return false;
+    const a = new Uint8Array(existing);
+    if (a.length !== want.length) return false;
+    for (let i = 0; i < a.length; i++) if (a[i] !== want[i]) return false;
+    return true;
+}
+
 export function pushSupported(): boolean {
     return typeof window !== "undefined"
         && "serviceWorker" in navigator
@@ -46,16 +57,26 @@ export async function ensurePushSubscription(): Promise<void> {
     try {
         const reg = await navigator.serviceWorker.ready;
 
-        // Reuse an existing subscription, else create one with the server VAPID key.
+        const key = await fetchVapidKey();
+        if (!key) { logger.warn("push: no VAPID key from server"); return; }
+        const appServerKey = urlBase64ToUint8Array(key);
+
         let sub = await reg.pushManager.getSubscription();
+        // If the existing subscription is bound to a DIFFERENT VAPID key than the server now signs
+        // with (key rotated, or it was created with a stale key), the push service — Apple especially —
+        // rejects our signed sends with BadJwtToken. Drop the stale one and re-subscribe with the
+        // current key so the subscription↔key binding is consistent again.
+        if (sub && !applicationServerKeyMatches(sub.options?.applicationServerKey, appServerKey)) {
+            logger.debug("push: VAPID key changed — re-subscribing");
+            await sub.unsubscribe().catch(() => { /* ignore */ });
+            sub = null;
+        }
         if (!sub) {
-            const key = await fetchVapidKey();
-            if (!key) { logger.warn("push: no VAPID key from server"); return; }
             sub = await reg.pushManager.subscribe({
                 userVisibleOnly: true,
                 // Cast: the DOM lib types applicationServerKey as BufferSource; a plain Uint8Array's
                 // generic ArrayBufferLike (incl. SharedArrayBuffer) trips strict assignability.
-                applicationServerKey: urlBase64ToUint8Array(key) as BufferSource,
+                applicationServerKey: appServerKey as BufferSource,
             });
         }
 
