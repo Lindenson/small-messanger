@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { Provider } from "react-redux";
 import {webRTCService} from '@/features/call/service/webRTCService';
 import { configureAppStore, hydrateStore } from "./store/store";
+import { saveOutboxToDB } from "@/features/chat/db/db";
 
 
 import "@/index.css";
@@ -24,7 +25,9 @@ if ("serviceWorker" in navigator) {
     navigator.serviceWorker.addEventListener("controllerchange", () => {
         if (reloaded) return;
         reloaded = true;
-        window.location.reload();
+        // Flush the outbox before reloading: persistence is debounced (400ms), so a message queued
+        // in that window would otherwise be lost when the fresh SW forces this reload.
+        saveOutboxToDB(store.getState().outbox).finally(() => window.location.reload());
     });
 }
 

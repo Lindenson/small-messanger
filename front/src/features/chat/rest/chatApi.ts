@@ -296,7 +296,14 @@ export const chatApi = createApi({
                         (clientMessageId && (m.clientId === clientMessageId || m.id === clientMessageId)));
                     if (i >= 0) draft.splice(i, 1);
                 }));
-                try { await queryFulfilled; } catch { patch.undo(); }
+                try {
+                    await queryFulfilled;
+                    // Persist the post-delete list now. The IndexedDB seed is otherwise only rewritten
+                    // on cacheEntryRemoved (unsubscribe); if the tab is hard-closed before then, the
+                    // stale pre-delete array would re-seed and the deleted message would reappear offline.
+                    const data = chatApi.endpoints.getChatHistory.select({ myId, chatId })(getState() as never)?.data;
+                    if (data) saveHistoryToDB(chatId, data).catch(() => { /* best-effort */ });
+                } catch { patch.undo(); }
             },
         }),
 
