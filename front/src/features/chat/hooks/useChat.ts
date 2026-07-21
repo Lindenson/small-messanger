@@ -11,6 +11,7 @@ import {useContacts} from "../../contacts/hooks/useContacts.ts";
 import {logger} from "@/shared/logger/logger.ts";
 import type {Contact} from "@/features/contacts/model/schema/domainContract.schema.ts";
 import {chatMessagesService} from "@/features/chat/model/services/chatMessages.service.ts";
+import {preserveSelectedConversation} from "@/features/chat/model/preserveSelectedConversation.ts";
 import {chatApi, useBlockChatMutation, useUnblockChatMutation, useDeleteMessageMutation, useAttachmentUploadUrlMutation, useAttachmentConfirmMutation, useAttachmentDownloadUrlMutation} from "@/features/chat/rest/chatApi.ts";
 import {retryMessage as retryOutboxMessage, discardMessage as discardOutboxMessage} from "@/features/chat/model/slices/outboxSlice.ts";
 import type {ChatMessageStatus} from "@/features/chat/model/types.ts";
@@ -196,38 +197,52 @@ export function useChat() {
     ====================== */
     const wsStatus = useSelector((state: RootState) => state.ws.status);
 
+    // Refetch the chat LIST so a conversation the peer started while we were offline appears — but
+    // PRESERVE the currently-selected conversation if the refetch drops it. A just-created chat has
+    // no messages yet, so the backend hides it from GET /chats; AddUser injects it into this cache
+    // and it is the source of truth until the first message. A blanket refetch would drop it (the
+    // "chat vanishes right after create" regression), so re-inject the selected summary if the fresh
+    // list is missing it.
+    const catchUpChats = useCallback(() => {
+        const before = chatApi.endpoints.getChats.select({myId})(store.getState())?.data;
+        dispatch(chatApi.endpoints.getChats.initiate({myId}, {forceRefetch: true}))
+            .unwrap()
+            .then(() => {
+                dispatch(chatApi.util.updateQueryData("getChats", {myId}, (draft) =>
+                    preserveSelectedConversation(draft ?? [], before, selectedChatId)));
+            })
+            .catch(() => { /* best-effort catch-up */ });
+    }, [myId, selectedChatId, dispatch, store]);
+
     useEffect(() => {
         if (wsStatus !== "connected") return;
         // resend anything still queued (idempotent by messageId)
         dispatch(flushOutbox());
-        // read-through on (re)connect so nothing is missed: refetch the chat LIST (a conversation the
-        // peer started while we were offline must appear, not just the open chat) AND the open chat's
-        // history.
-        dispatch(chatApi.util.invalidateTags(["Chats"]));
+        // read-through on (re)connect so nothing is missed: refresh the chat list (preserving a
+        // freshly-created chat) and the open chat's history.
+        catchUpChats();
         if (selectedChatId) {
             reloadChatHistory().catch(logger.error);
         }
-    }, [wsStatus, selectedChatId, reloadChatHistory, dispatch]);
+    }, [wsStatus, selectedChatId, reloadChatHistory, catchUpChats, dispatch]);
 
     // Catch up over REST on RESUME from background / network recovery — independent of the WS state.
     // A merely-backgrounded mobile PWA can come back with a socket that still reports OPEN but is
     // actually dead, so the wsStatus-driven read-through above never re-fires; without this a
-    // conversation or messages that arrived while suspended only show after a full reload (the exact
-    // "reopen the sleeping app and the chat the peer wrote to isn't there" bug). Refetch the chat list
-    // and the open chat's history.
+    // conversation or messages that arrived while suspended only show after a full reload.
     useEffect(() => {
-        const catchUp = () => {
+        const onResume = () => {
             if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-            dispatch(chatApi.util.invalidateTags(["Chats"]));
+            catchUpChats();
             if (selectedChatId) reloadChatHistory().catch(() => {});
         };
-        document.addEventListener("visibilitychange", catchUp);
-        window.addEventListener("online", catchUp);
+        document.addEventListener("visibilitychange", onResume);
+        window.addEventListener("online", onResume);
         return () => {
-            document.removeEventListener("visibilitychange", catchUp);
-            window.removeEventListener("online", catchUp);
+            document.removeEventListener("visibilitychange", onResume);
+            window.removeEventListener("online", onResume);
         };
-    }, [selectedChatId, reloadChatHistory, dispatch]);
+    }, [selectedChatId, reloadChatHistory, catchUpChats]);
 
     // Newest message id in a chat that is a real server ULID (skips our own not-yet-reconciled temp
     // client ids). READ_IN carries this as the read boundary the peer stores + uses for ✓✓.
