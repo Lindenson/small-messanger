@@ -200,11 +200,34 @@ export function useChat() {
         if (wsStatus !== "connected") return;
         // resend anything still queued (idempotent by messageId)
         dispatch(flushOutbox());
-        // read-through: pull history over REST on (re)connect so nothing is missed
+        // read-through on (re)connect so nothing is missed: refetch the chat LIST (a conversation the
+        // peer started while we were offline must appear, not just the open chat) AND the open chat's
+        // history.
+        dispatch(chatApi.util.invalidateTags(["Chats"]));
         if (selectedChatId) {
             reloadChatHistory().catch(logger.error);
         }
     }, [wsStatus, selectedChatId, reloadChatHistory, dispatch]);
+
+    // Catch up over REST on RESUME from background / network recovery — independent of the WS state.
+    // A merely-backgrounded mobile PWA can come back with a socket that still reports OPEN but is
+    // actually dead, so the wsStatus-driven read-through above never re-fires; without this a
+    // conversation or messages that arrived while suspended only show after a full reload (the exact
+    // "reopen the sleeping app and the chat the peer wrote to isn't there" bug). Refetch the chat list
+    // and the open chat's history.
+    useEffect(() => {
+        const catchUp = () => {
+            if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+            dispatch(chatApi.util.invalidateTags(["Chats"]));
+            if (selectedChatId) reloadChatHistory().catch(() => {});
+        };
+        document.addEventListener("visibilitychange", catchUp);
+        window.addEventListener("online", catchUp);
+        return () => {
+            document.removeEventListener("visibilitychange", catchUp);
+            window.removeEventListener("online", catchUp);
+        };
+    }, [selectedChatId, reloadChatHistory, dispatch]);
 
     // Newest message id in a chat that is a real server ULID (skips our own not-yet-reconciled temp
     // client ids). READ_IN carries this as the read boundary the peer stores + uses for ✓✓.
