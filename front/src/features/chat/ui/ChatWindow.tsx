@@ -6,6 +6,7 @@ import type {Contact} from "@/features/contacts/model/schema/domainContract.sche
 import {setSelectedChatId} from "@/features/chat/model/slices/chatUiSlice.ts";
 import {loadOlderHistory} from "@/features/chat/thunk/loadOlderHistory.ts";
 import {MESSAGE_WINDOW_INITIAL, MESSAGE_WINDOW_STEP} from "@/shared/config/chat.ts";
+import {isUlid} from "@/shared/ulid/ulid.ts";
 
 // Local HH:mm for a message timestamp (epoch ms).
 const fmtTime = (ms: number) => new Date(ms).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
@@ -410,8 +411,13 @@ function ChatWindow({
                                 );
                             }
                             // Per-message read state: read iff this message's id is at/below the peer's
-                            // read boundary (both server ULIDs; string compare == chronological).
-                            const isRead = !!peerLastReadId && msg.id <= peerLastReadId;
+                            // read boundary. BOTH sides must be server ULIDs for the string compare to be
+                            // chronological. An optimistic message not yet reconciled by CHAT_ACK still
+                            // carries its temporary nanoid id — comparing that against a ULID boundary is
+                            // meaningless (nanoid's first char lands on either side of a ULID's at random),
+                            // which produced intermittent false ✓✓. Guard with isUlid: no server id == not
+                            // yet stored == cannot be read.
+                            const isRead = !!peerLastReadId && isUlid(msg.id) && msg.id <= peerLastReadId;
                             return (
                                 <span className="ml-2 text-[10px] align-bottom opacity-70"
                                       title={isRead ? t("chat.read") : t("chat.sent")}>
