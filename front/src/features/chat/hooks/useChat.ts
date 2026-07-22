@@ -2,7 +2,6 @@ import {useCallback, useMemo, useRef, useState, useEffect} from "react";
 import {useDispatch, useSelector} from "react-redux";
 import {setSelectedChatId} from "@/features/chat/model/slices/chatUiSlice";
 import type {AppDispatch, RootState} from "@/store/store";
-import {isUlid} from "@/shared/ulid/ulid.ts";
 
 import {useChatMessages} from "./useChatMessages";
 import {useChatAttachments} from "./useChatAttachments";
@@ -10,12 +9,12 @@ import {useUnreadChats} from "./useUnreadChats";
 import {useReadReceipts} from "./useReadReceipts";
 import {useReconnectCatchup} from "./useReconnectCatchup";
 import {useOutboxStatus} from "./useOutboxStatus";
+import {useChatModeration} from "./useChatModeration";
 import {useContacts} from "../../contacts/hooks/useContacts.ts";
 
 import {logger} from "@/shared/logger/logger.ts";
 import type {Contact} from "@/features/contacts/model/schema/domainContract.schema.ts";
 import {chatMessagesService} from "@/features/chat/model/services/chatMessages.service.ts";
-import {useBlockChatMutation, useUnblockChatMutation, useDeleteMessageMutation} from "@/features/chat/rest/chatApi.ts";
 import toast from "react-hot-toast";
 import {useTranslation} from "react-i18next";
 import {buildTypingIn} from "@/features/chat/model/schema/wireMessage.schema.ts";
@@ -56,10 +55,6 @@ export function useChat() {
         }
     }, [selectedChatId, summaries, isLoadingIds, dispatch]);
 
-    const [blockChat] = useBlockChatMutation();
-    const [unblockChat] = useUnblockChatMutation();
-    const [deleteMessageMut] = useDeleteMessageMutation();
-
     // Declared before the handlers that reference them (reloadChatHistory/clearChat/markRead).
     const {unreadChats, markRead} = useUnreadChats();
     const {messages, isError: historyError, reloadChatHistory, clearChat} = useChatMessages();
@@ -87,46 +82,9 @@ export function useChat() {
         () => (selectedChatId ? getSummary(selectedChatId)?.counterpartId ?? null : null),
         [selectedChatId, getSummary]
     );
-    const selectedBlocked = useMemo(
-        () => (selectedChatId ? getSummary(selectedChatId)?.blocked ?? false : false),
-        [selectedChatId, getSummary]
-    );
-    const selectedBlockedByMe = useMemo(
-        () => (selectedChatId ? getSummary(selectedChatId)?.blockedByMe ?? false : false),
-        [selectedChatId, getSummary]
-    );
-    const selectedBlockedByPeer = useMemo(
-        () => (selectedChatId ? getSummary(selectedChatId)?.blockedByPeer ?? false : false),
-        [selectedChatId, getSummary]
-    );
-
-    // Toggle only MY side of the block (I can't lift the peer's block).
-    const toggleBlock = useCallback(async () => {
-        if (!selectedChatId) return;
-        try {
-            if (selectedBlockedByMe) { await unblockChat({chatId: selectedChatId}).unwrap(); toast.success(t("chat.unblocked")); }
-            else { await blockChat({chatId: selectedChatId}).unwrap(); toast.success(t("chat.blocked")); }
-        } catch { toast.error(t("chat.blockError")); }
-    }, [selectedChatId, selectedBlockedByMe, unblockChat, blockChat, t]);
-
-    const deleteMessage = useCallback(async (messageId: string) => {
-        if (!selectedChatId) return;
-        // The backend deletes by EITHER id, so send the one we have — no cache read, no refetch.
-        // A ULID is the server id (backendId); anything else is still the temporary client id
-        // (clientMessageId, which the backend also resolves). Reconciled rows carry the ULID already.
-        const server = isUlid(messageId);
-        try {
-            await deleteMessageMut({
-                chatId: selectedChatId,
-                backendId: server ? messageId : undefined,
-                clientMessageId: server ? undefined : messageId,
-            }).unwrap();
-        } catch (e) {
-            const st = (e as { status?: number })?.status;
-            toast.error(st === 409 ? t("chat.msgFrozen") : t("chat.msgDeleteError"));
-        }
-    }, [selectedChatId, deleteMessageMut, t]);
-
+    // Moderation (block flags + toggleBlock + deleteMessage) lives in its own hook.
+    const {selectedBlocked, selectedBlockedByMe, selectedBlockedByPeer, toggleBlock, deleteMessage} =
+        useChatModeration({selectedChatId, getSummary});
 
     // Incoming CHAT_OUT / CHAT_ACK / READ_OUT / TYPING_OUT are handled per-frame in chatMiddleware
     // (not a lastIncoming effect), so bursts of frames are never dropped.
