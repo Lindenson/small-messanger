@@ -7,6 +7,7 @@ import {isUlid} from "@/shared/ulid/ulid.ts";
 import {useChatMessages} from "./useChatMessages";
 import {useChatAttachments} from "./useChatAttachments";
 import {useUnreadChats} from "./useUnreadChats";
+import {useReadReceipts} from "./useReadReceipts";
 import {useContacts} from "../../contacts/hooks/useContacts.ts";
 
 import {logger} from "@/shared/logger/logger.ts";
@@ -17,7 +18,7 @@ import {retryMessage as retryOutboxMessage, discardMessage as discardOutboxMessa
 import type {ChatMessageStatus} from "@/features/chat/model/types.ts";
 import toast from "react-hot-toast";
 import {useTranslation} from "react-i18next";
-import {buildReadIn, buildTypingIn} from "@/features/chat/model/schema/wireMessage.schema.ts";
+import {buildTypingIn} from "@/features/chat/model/schema/wireMessage.schema.ts";
 import {flushOutbox} from "@/features/chat/thunk/sendOutboxThunk.ts";
 
 
@@ -174,57 +175,10 @@ export function useChat() {
         };
     }, [selectedChatId, reloadChatHistory, catchUpChats]);
 
-    // Newest message id in a chat that is a real server ULID (skips our own not-yet-reconciled temp
-    // client ids). READ_IN carries this as the read boundary the peer stores + uses for ✓✓.
-    const lastReadMessageId = useCallback((chatId: string): string | undefined => {
-        const data = chatApi.endpoints.getChatHistory.select({myId, chatId})(store.getState())?.data;
-        if (!data) return undefined;
-        for (let i = data.length - 1; i >= 0; i--) {
-            if (isUlid(data[i].id)) return data[i].id;
-        }
-        return undefined;
-    }, [myId, store]);
-
-    // Deferred read: messages that arrived while the tab was hidden are marked read only when the
-    // tab regains focus with the chat still open (mirrors the "active = open AND visible" rule).
-    useEffect(() => {
-        const onVisible = () => {
-            if (document.visibilityState !== "visible" || !selectedChatId) return;
-            markRead(selectedChatId);
-            const s = getSummary(selectedChatId);
-            if (s) dispatch({type: "ws/send", payload: buildReadIn(selectedChatId, s.counterpartId, lastReadMessageId(selectedChatId))});
-        };
-        document.addEventListener("visibilitychange", onVisible);
-        return () => document.removeEventListener("visibilitychange", onVisible);
-    }, [selectedChatId, markRead, getSummary, dispatch, lastReadMessageId]);
-
-    // (Re)send READ_IN whenever we become CONNECTED with the open chat visible. READ_IN is
-    // fire-and-forget over the WS with no retry, so one dispatched while the socket was still
-    // reconnecting/suspended (exactly the resume-from-background case) is silently dropped and the
-    // peer's ✓✓ never advances — "no read event on resume". Re-sending on connect delivers it.
-    // Idempotent (backend advances the watermark by GREATEST).
-    useEffect(() => {
-        if (wsStatus !== "connected" || !selectedChatId) return;
-        if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-        const boundary = lastReadMessageId(selectedChatId);
-        if (!boundary) return;
-        const s = getSummary(selectedChatId);
-        if (s) dispatch({type: "ws/send", payload: buildReadIn(selectedChatId, s.counterpartId, boundary)});
-    }, [wsStatus, selectedChatId, lastReadMessageId, getSummary, dispatch]);
-
-    // Report "read up to the newest message" whenever the OPEN + visible chat has messages. This is
-    // the key trigger for the peer's ✓✓: openChat fires a read BEFORE the history is fetched (empty
-    // boundary), so we also (re)send once the history — and each later arrival — is present, carrying
-    // the newest server ULID as the read boundary in READ_IN. Idempotent on the backend (GREATEST).
+    // Read-receipt (READ_IN) machinery lives in its own hook (boundary reader + the visible/connect/
+    // newest triggers). It hands back the boundary reader and a sender for openChat.
     const newestMessageId = messages.length ? messages[messages.length - 1].id : null;
-    useEffect(() => {
-        if (!selectedChatId) return;
-        if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-        const boundary = lastReadMessageId(selectedChatId);
-        if (!boundary) return;
-        const s = getSummary(selectedChatId);
-        if (s) dispatch({type: "ws/send", payload: buildReadIn(selectedChatId, s.counterpartId, boundary)});
-    }, [selectedChatId, newestMessageId, lastReadMessageId, getSummary, dispatch]);
+    const {sendReadReceipt} = useReadReceipts({selectedChatId, newestMessageId, getSummary, markRead});
 
     /* ======================
        Actions (memoized so <ChatWindow>/<ChatList> can be React.memo'd)
@@ -233,9 +187,8 @@ export function useChat() {
         dispatch(setSelectedChatId(chatId));
         markRead(chatId);
         // Mark the conversation read on open (peer receives READ_OUT).
-        const s = getSummary(chatId);
-        if (s) dispatch({type: "ws/send", payload: buildReadIn(chatId, s.counterpartId, lastReadMessageId(chatId))});
-    }, [dispatch, markRead, getSummary, lastReadMessageId]);
+        sendReadReceipt(chatId);
+    }, [dispatch, markRead, sendReadReceipt]);
 
     const sendMessage = useCallback((text: string) => {
         if (!selectedChatId || !text.trim()) return;
