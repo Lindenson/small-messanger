@@ -118,7 +118,13 @@ export function showDesktopNotification(title: string, body: string, conversatio
         // to `new Notification()` (which THROWS on mobile) → notifications silently stopped.
         if ("serviceWorker" in navigator) {
             navigator.serviceWorker.ready
-                .then((reg) => reg.showNotification(title, opts))
+                .then(async (reg) => {
+                    // Close any existing notification with the same tag first (symmetric with the SW
+                    // push handler): if a Web Push for this conversation is already on screen, replace
+                    // it instead of stacking a second one — the OS tag-replace is unreliable (iOS).
+                    try { for (const n of await reg.getNotifications({tag: opts.tag})) n.close(); } catch { /* ignore */ }
+                    await reg.showNotification(title, opts);
+                })
                 .catch(() => { try { new Notification(title, opts); } catch { /* ignore */ } });
             return;
         }
