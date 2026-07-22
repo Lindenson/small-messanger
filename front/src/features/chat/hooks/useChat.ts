@@ -1,4 +1,4 @@
-import {useCallback, useMemo, useRef, useState, useEffect} from "react";
+import {useCallback, useMemo, useState, useEffect} from "react";
 import {useDispatch, useSelector} from "react-redux";
 import {setSelectedChatId} from "@/features/chat/model/slices/chatUiSlice";
 import type {AppDispatch, RootState} from "@/store/store";
@@ -10,24 +10,19 @@ import {useReadReceipts} from "./useReadReceipts";
 import {useReconnectCatchup} from "./useReconnectCatchup";
 import {useOutboxStatus} from "./useOutboxStatus";
 import {useChatModeration} from "./useChatModeration";
+import {useMessageComposer} from "./useMessageComposer";
 import {useContacts} from "../../contacts/hooks/useContacts.ts";
 
 import {logger} from "@/shared/logger/logger.ts";
 import type {Contact} from "@/features/contacts/model/schema/domainContract.schema.ts";
-import {chatMessagesService} from "@/features/chat/model/services/chatMessages.service.ts";
-import toast from "react-hot-toast";
-import {useTranslation} from "react-i18next";
-import {buildTypingIn} from "@/features/chat/model/schema/wireMessage.schema.ts";
 
 
 export function useChat() {
     const dispatch = useDispatch<AppDispatch>();
-    const {t} = useTranslation();
 
     /* ======================
        UI state (local)
     ====================== */
-    const [messageInput, setMessageInput] = useState("");
     const [searchQuery, setSearchQuery] = useState("");
 
     /* ======================
@@ -108,24 +103,6 @@ export function useChat() {
         sendReadReceipt(chatId);
     }, [dispatch, markRead, sendReadReceipt]);
 
-    const sendMessage = useCallback((text: string) => {
-        if (!selectedChatId || !text.trim()) return;
-        const summary = getSummary(selectedChatId);
-        if (!summary) {
-            // Don't fail silently: if we can't resolve the conversation we can't send. Log it and
-            // tell the user instead of the click doing nothing.
-            logger.warn("sendMessage: no summary for selected chat — cannot send", {selectedChatId});
-            toast.error(t("chat.msgSendError", {defaultValue: "Couldn't send — reopen the chat"}));
-            return;
-        }
-        setMessageInput("");
-        chatMessagesService.enqueueChatMessage(
-            dispatch, text, myId, selectedChatId, summary.counterpartId, summary.orderId
-        );
-        // A new message is naturally "not read yet": its createdAt is above the peer's read
-        // watermark, so it renders ✓ until a READ_OUT advances the watermark past it. No global reset.
-    }, [selectedChatId, getSummary, myId, dispatch, t]);
-
     const deleteChat = useCallback(async () => {
         await clearChat();
         dispatch(setSelectedChatId(null));
@@ -134,16 +111,9 @@ export function useChat() {
     // Outbox delivery status (per-message 🕐 / ⚠ + retry/discard) lives in its own hook.
     const {outboxStatusById, retryMessage, discardMessage} = useOutboxStatus({selectedChatId, myId});
 
-    // Throttled "I'm typing" notifier (TYPING_IN → peer's TYPING_OUT). Called on input change.
-    const lastTypingRef = useRef(0);
-    const notifyTyping = useCallback(() => {
-        if (!selectedChatId) return;
-        const now = Date.now();
-        if (now - lastTypingRef.current < 2500) return;
-        lastTypingRef.current = now;
-        const s = getSummary(selectedChatId);
-        if (s) dispatch({type: "ws/send", payload: buildTypingIn(selectedChatId, s.counterpartId)});
-    }, [selectedChatId, getSummary, dispatch]);
+    // Composer state + send + typing notifier live in their own hook.
+    const {messageInput, setMessageInput, sendMessage, notifyTyping} =
+        useMessageComposer({selectedChatId, myId, getSummary});
 
     return {
         contacts,
