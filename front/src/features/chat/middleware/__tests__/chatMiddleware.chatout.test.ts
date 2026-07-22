@@ -54,9 +54,10 @@ function harness(selectedChatId: string | null) {
 }
 
 const sends = (d: Dispatched[]) => d.filter((a) => a.type === "ws/send").map((a) => a.payload as Record<string, unknown>);
-const recipe = (d: Dispatched[], endpoint: string) =>
-    (d.find((a) => a.type === "test/updateQueryData" && (a as {endpoint: string}).endpoint === endpoint) as
-        {recipe: (draft: unknown[]) => void} | undefined)?.recipe;
+const recipe = (d: Dispatched[], endpoint: string) => {
+    const found = d.find((a) => a.type === "test/updateQueryData" && a.endpoint === endpoint);
+    return found?.recipe as ((draft: unknown[]) => void) | undefined;
+};
 
 function setHidden(v: boolean) {
     Object.defineProperty(document, "hidden", {configurable: true, get: () => v});
@@ -171,7 +172,7 @@ describe("chatMiddleware — CHAT_ACK (outbox reconcile)", () => {
     it("drops the accepted message from the outbox (markSent by correlationId)", () => {
         const {dispatched, run} = harness("c1");
         run(ack());
-        expect(dispatched.some((a) => a.type === markSent.type && (a as {payload: string}).payload === CLIENT_ID)).toBe(true);
+        expect(dispatched.some((a) => a.type === markSent.type && a.payload === CLIENT_ID)).toBe(true);
     });
 
     it("reconciles the optimistic echo: swaps temp id → server ULID and stamps server time", () => {
