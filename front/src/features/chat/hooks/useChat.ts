@@ -1,5 +1,5 @@
 import {useCallback, useMemo, useRef, useState, useEffect} from "react";
-import {useDispatch, useSelector, useStore} from "react-redux";
+import {useDispatch, useSelector} from "react-redux";
 import {setSelectedChatId} from "@/features/chat/model/slices/chatUiSlice";
 import type {AppDispatch, RootState} from "@/store/store";
 import {isUlid} from "@/shared/ulid/ulid.ts";
@@ -8,23 +8,21 @@ import {useChatMessages} from "./useChatMessages";
 import {useChatAttachments} from "./useChatAttachments";
 import {useUnreadChats} from "./useUnreadChats";
 import {useReadReceipts} from "./useReadReceipts";
+import {useReconnectCatchup} from "./useReconnectCatchup";
+import {useOutboxStatus} from "./useOutboxStatus";
 import {useContacts} from "../../contacts/hooks/useContacts.ts";
 
 import {logger} from "@/shared/logger/logger.ts";
 import type {Contact} from "@/features/contacts/model/schema/domainContract.schema.ts";
 import {chatMessagesService} from "@/features/chat/model/services/chatMessages.service.ts";
-import {chatApi, useBlockChatMutation, useUnblockChatMutation, useDeleteMessageMutation} from "@/features/chat/rest/chatApi.ts";
-import {retryMessage as retryOutboxMessage, discardMessage as discardOutboxMessage} from "@/features/chat/model/slices/outboxSlice.ts";
-import type {ChatMessageStatus} from "@/features/chat/model/types.ts";
+import {useBlockChatMutation, useUnblockChatMutation, useDeleteMessageMutation} from "@/features/chat/rest/chatApi.ts";
 import toast from "react-hot-toast";
 import {useTranslation} from "react-i18next";
 import {buildTypingIn} from "@/features/chat/model/schema/wireMessage.schema.ts";
-import {flushOutbox} from "@/features/chat/thunk/sendOutboxThunk.ts";
 
 
 export function useChat() {
     const dispatch = useDispatch<AppDispatch>();
-    const store = useStore<RootState>();
     const {t} = useTranslation();
 
     /* ======================
@@ -133,47 +131,9 @@ export function useChat() {
     // Incoming CHAT_OUT / CHAT_ACK / READ_OUT / TYPING_OUT are handled per-frame in chatMiddleware
     // (not a lastIncoming effect), so bursts of frames are never dropped.
 
-    /* ======================
-       Reconnect handling
-    ====================== */
-    const wsStatus = useSelector((state: RootState) => state.ws.status);
-
-    // Refetch the chat list preserving a freshly-created (still-hidden) selected chat — the shared
-    // helper is the single funnel for every getChats refresh (see chatMessages.service).
-    const catchUpChats = useCallback(() => {
-        chatMessagesService.refetchChatsPreservingSelected(dispatch, store.getState);
-    }, [dispatch, store]);
-
-    // Read-through ONLY on the actual disconnected→connected transition — NOT on every chat switch.
-    // (The effect deps include selectedChatId so its closure stays fresh, but the transition guard
-    // stops it re-running on a plain chat open, which was causing a getChats+history refetch storm.)
-    const prevWsRef = useRef(wsStatus);
-    useEffect(() => {
-        const was = prevWsRef.current;
-        prevWsRef.current = wsStatus;
-        if (wsStatus !== "connected" || was === "connected") return;
-        dispatch(flushOutbox());                 // resend anything still queued (idempotent)
-        catchUpChats();                          // refresh the chat list (new convs while offline)
-        if (selectedChatId) reloadChatHistory().catch(logger.error); // open chat's missed history
-    }, [wsStatus, selectedChatId, reloadChatHistory, catchUpChats, dispatch]);
-
-    // Catch up over REST on RESUME from background / network recovery — independent of the WS state.
-    // A merely-backgrounded mobile PWA can come back with a socket that still reports OPEN but is
-    // actually dead, so the wsStatus-driven read-through above never re-fires; without this a
-    // conversation or messages that arrived while suspended only show after a full reload.
-    useEffect(() => {
-        const onResume = () => {
-            if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-            catchUpChats();
-            if (selectedChatId) reloadChatHistory().catch(() => {});
-        };
-        document.addEventListener("visibilitychange", onResume);
-        window.addEventListener("online", onResume);
-        return () => {
-            document.removeEventListener("visibilitychange", onResume);
-            window.removeEventListener("online", onResume);
-        };
-    }, [selectedChatId, reloadChatHistory, catchUpChats]);
+    // Reconnect / resume catch-up (refresh list + open history on ws reconnect and on resume from
+    // background) lives in its own hook.
+    useReconnectCatchup({selectedChatId, reloadChatHistory});
 
     // Read-receipt (READ_IN) machinery lives in its own hook (boundary reader + the visible/connect/
     // newest triggers). It hands back the boundary reader and a sender for openChat.
@@ -213,31 +173,8 @@ export function useChat() {
         dispatch(setSelectedChatId(null));
     }, [clearChat, dispatch]);
 
-    /* ======================
-       Outbox delivery status (for per-message 🕐 / ⚠ + retry/discard on failed sends)
-    ====================== */
-    const outboxMessages = useSelector((state: RootState) => state.outbox.messages);
-    const outboxStatusById = useMemo(() => {
-        const map: Record<string, ChatMessageStatus> = {};
-        for (const m of outboxMessages) map[m.id] = m.status;
-        return map;
-    }, [outboxMessages]);
-
-    const retryMessage = useCallback((id: string) => {
-        dispatch(retryOutboxMessage(id));
-        dispatch(flushOutbox());
-    }, [dispatch]);
-
-    const discardMessage = useCallback((id: string) => {
-        dispatch(discardOutboxMessage(id));
-        // Also drop the optimistic row from the open history (it was never accepted by the server).
-        if (selectedChatId) {
-            dispatch(chatApi.util.updateQueryData("getChatHistory", {myId, chatId: selectedChatId}, (draft) => {
-                const i = draft.findIndex((m) => m.id === id);
-                if (i >= 0) draft.splice(i, 1);
-            }));
-        }
-    }, [dispatch, myId, selectedChatId]);
+    // Outbox delivery status (per-message 🕐 / ⚠ + retry/discard) lives in its own hook.
+    const {outboxStatusById, retryMessage, discardMessage} = useOutboxStatus({selectedChatId, myId});
 
     // Throttled "I'm typing" notifier (TYPING_IN → peer's TYPING_OUT). Called on input change.
     const lastTypingRef = useRef(0);
