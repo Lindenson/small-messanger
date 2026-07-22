@@ -90,7 +90,9 @@ export const chatMiddleware: Middleware = (store) => (next) => (action) => {
                 dispatch(markChatUnread(chatId));
                 // Best-effort notify when not actively viewing.
                 playNotificationSound();
-                if (hidden) showDesktopNotification(i18n.t("chat.newMessage"), msg.text || "", chatId);
+                // Pass the server message id so the SW arbiter can dedup this online notification
+                // against an offline Web Push for the SAME message (both carry the server ULID).
+                if (hidden) showDesktopNotification(i18n.t("chat.newMessage"), msg.text || "", chatId, msg.id);
             }
             break;
         }

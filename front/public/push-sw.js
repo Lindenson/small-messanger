@@ -1,12 +1,18 @@
-/* Web Push handlers, imported into the generated service worker via workbox `importScripts`.
+/* Web Push + notification arbiter, imported into the generated service worker via workbox
+ * `importScripts`.
  *
  * Plain JS on purpose: this file is served verbatim from /public (never bundled/hashed) and pulled
- * into app-sw.js with importScripts(), so it must run as-is in the SW global scope. It handles the
- * two events the page JS cannot when the app is closed/backgrounded and the OS has suspended it:
- *   - `push`             → render the notification (payload sent by hormiga-webpush)
- *   - `notificationclick`→ focus an existing tab or open the app
+ * into app-sw.js with importScripts(), so it must run as-is in the SW global scope.
  *
- * Payload shape (hormiga-webpush domain.Notification):
+ * SINGLE-ARBITER MODEL. One incoming message can be announced by TWO independent channels:
+ *   - OFFLINE: the OS delivers a Web Push → the `push` event here (app suspended/closed).
+ *   - ONLINE:  the live app got the CHAT_OUT frame and asks us to notify → the `message` event here.
+ * Both converge on showChatNotification(), which dedups by `data.messageId` BEFORE showing. The SW
+ * is single-threaded, so claiming the id (claimShow) is synchronous and race-free: whichever channel
+ * reaches it first for a given messageId shows the notification; the other is dropped. This replaces
+ * the old best-effort "same tag + close-existing" coalescing, which lost the near-simultaneous race.
+ *
+ * Payload shape (hormiga-webpush domain.Notification, and the page's postMessage payload):
  *   { title, body, tag?, data: { conversationId?, messageId?, senderId?, url? } }
  */
 
@@ -15,31 +21,60 @@ const SCOPE_PATH = (() => {
     try { return new URL(self.registration.scope).pathname; } catch (e) { return "/"; }
 })();
 
+// Cross-channel dedup: messageId → expiry timestamp. Best-effort, in-memory (a dup requires both
+// channels to fire within seconds, during which the SW stays alive). Bounded by TTL cleanup.
+const DEDUP_TTL_MS = 60_000;
+const shownRecently = new Map();
+
+// Synchronously claim the right to show `messageId` (no await before the set → race-free between the
+// push and message events). Returns false if it was already claimed within the TTL. A missing id
+// cannot be deduped, so it always shows.
+function claimShow(messageId) {
+    const now = Date.now();
+    for (const [k, exp] of shownRecently) { if (exp <= now) shownRecently.delete(k); }
+    if (!messageId) return true;
+    if (shownRecently.has(messageId)) return false;
+    shownRecently.set(messageId, now + DEDUP_TTL_MS);
+    return true;
+}
+
+async function showChatNotification(payload) {
+    const data = (payload && payload.data && typeof payload.data === "object") ? payload.data : {};
+    // Dedup across channels first (synchronous claim above any await).
+    if (!claimShow(data.messageId)) return;
+
+    const title = (payload && payload.title) || "New message";
+    const tag = (payload && payload.tag) || data.conversationId || "chat-message";
+    const options = {
+        body: (payload && payload.body) || "You have a new message",
+        icon: SCOPE_PATH + "pwa-192x192.png",
+        badge: SCOPE_PATH + "pwa-192x192.png",
+        tag,               // one notification per conversation
+        renotify: true,
+        data,
+    };
+    // Belt-and-suspenders: also close any existing same-tag notification so a lingering prior one for
+    // this conversation is replaced rather than stacked (OS tag-replace is unreliable on iOS).
+    try {
+        const existing = await self.registration.getNotifications({ tag });
+        for (const n of existing) n.close();
+    } catch (e) { /* getNotifications unsupported → rely on tag-replace */ }
+    await self.registration.showNotification(title, options);
+}
+
+// OFFLINE channel: server Web Push.
 self.addEventListener("push", (event) => {
     let payload = {};
     try { payload = event.data ? event.data.json() : {}; } catch (e) { payload = {}; }
+    event.waitUntil(showChatNotification(payload));
+});
 
-    const title = payload.title || "New message";
-    const options = {
-        body: payload.body || "You have a new message",
-        icon: SCOPE_PATH + "pwa-192x192.png",
-        badge: SCOPE_PATH + "pwa-192x192.png",
-        // Coalesce a burst for the same conversation into one notification; renotify re-alerts.
-        tag: payload.tag || (payload.data && payload.data.conversationId) || "chat-message",
-        renotify: true,
-        data: (payload.data && typeof payload.data === "object") ? payload.data : {},
-    };
-    // Enforce ONE notification per conversation even if the OS doesn't honor tag-replace (iOS is
-    // unreliable): close any existing notification with the same tag before showing. This dedups the
-    // online (client-side, backgrounded-but-alive) notification against this server push when both
-    // fire for the same message in the reconnect overlap.
-    event.waitUntil((async () => {
-        try {
-            const existing = await self.registration.getNotifications({ tag: options.tag });
-            for (const n of existing) n.close();
-        } catch (e) { /* getNotifications unsupported → rely on tag-replace */ }
-        await self.registration.showNotification(title, options);
-    })());
+// ONLINE channel: the live app asks the arbiter to render a notification (see notify.ts).
+self.addEventListener("message", (event) => {
+    const msg = event.data;
+    if (msg && msg.type === "show-notification" && msg.payload) {
+        event.waitUntil(showChatNotification(msg.payload));
+    }
 });
 
 self.addEventListener("notificationclick", (event) => {

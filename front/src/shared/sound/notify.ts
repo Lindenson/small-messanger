@@ -80,54 +80,66 @@ export function armNotificationPermissionOnGesture(onGranted?: () => void) {
 }
 
 /**
- * Show a notification if allowed (used when the app is backgrounded / the tab is hidden).
+ * Show a notification for an incoming message while the app is backgrounded / the tab is hidden.
  *
- * Prefers the service worker's `showNotification` over the page-context `new Notification()`:
- * on mobile (Android Chrome, installed iOS PWA) `new Notification()` is unsupported and throws, so
- * a phone with the app merely backgrounded (chat still open) would get NO notification. Routing
- * through the SW registration makes it work there too; `new Notification()` stays as the desktop
- * fallback when no SW is controlling the page. Both are best-effort.
+ * SINGLE-ARBITER MODEL (fixes cross-channel duplicates). There are two independent notification
+ * channels for one message: this ONLINE path (the live app got the CHAT_OUT frame) and the OFFLINE
+ * Web Push (hormiga-webpush → the SW `push` event). Coalescing them after the fact by a shared
+ * `tag` loses the race when both fire near-simultaneously. So this path does NOT call
+ * `showNotification` itself — it hands the request to the service worker (`postMessage`), which is
+ * the ONE place both channels converge and dedups by `messageId` before showing (see push-sw.js).
+ * That makes the dedup race-free (the SW is single-threaded: it claims the id synchronously before
+ * any await). `messageId` is the server message ULID, identical on both channels.
+ *
+ * Fallback: if there is no active SW (rare — desktop without the PWA installed), show directly.
+ * That path can't cross-channel-dedup, but there is also no Web Push without a SW, so no duplicate.
  *
  * NOTE: this still requires the page's JS + WebSocket to be alive to receive the CHAT_OUT frame.
- * When the OS fully suspends a backgrounded mobile PWA (socket killed), no frame arrives and nothing
- * here runs — that case needs server-sent Web Push (VAPID + a push handler in the SW), a backend
- * feature not covered by this client-only path.
+ * When the OS fully suspends the PWA (socket killed) only the Web Push fires — handled entirely in
+ * the SW.
  */
-export function showDesktopNotification(title: string, body: string, conversationId?: string) {
+export function showDesktopNotification(title: string, body: string, conversationId?: string, messageId?: string) {
     try {
         if (!("Notification" in window) || Notification.permission !== "granted") return;
         const base = import.meta.env.BASE_URL;
-        const opts = {
+        const payload = {
+            title,
             body,
-            icon: `${base}pwa-192x192.png`,
-            badge: `${base}pwa-192x192.png`,
-            // Same tag AND data.url as the server Web Push (which also keys tag on conversationId):
-            //  - same tag ⇒ if BOTH the online (this) and the offline (Web Push) notification fire for
-            //    one message in the reconnect/backgrounded overlap, the OS COALESCES them into one
-            //    instead of showing a duplicate;
-            //  - data.url ⇒ clicking routes to the chat via the SW's notificationclick handler (the
-            //    online notification used to just open the app root).
+            // Same tag as the Web Push (also keyed on conversationId) → one notification per chat.
             tag: conversationId || "chat-message",
-            renotify: true,
-            data: {conversationId, url: conversationId ? `${base}?chat=${conversationId}` : base},
-        } as NotificationOptions;
-        // Use the SW registration whenever the browser has service workers — NOT gated on
-        // navigator.serviceWorker.controller. `ready` resolves to the active registration even when
-        // this page isn't "controlled" (e.g. right after a fresh SW install with no reload), and
-        // reg.showNotification works regardless of control. Gating on .controller wrongly fell through
-        // to `new Notification()` (which THROWS on mobile) → notifications silently stopped.
+            data: {
+                conversationId,
+                messageId,   // ← the cross-channel dedup key (server message ULID)
+                url: conversationId ? `${base}?chat=${conversationId}` : base,
+            },
+        };
         if ("serviceWorker" in navigator) {
             navigator.serviceWorker.ready
-                .then(async (reg) => {
-                    // Close any existing notification with the same tag first (symmetric with the SW
-                    // push handler): if a Web Push for this conversation is already on screen, replace
-                    // it instead of stacking a second one — the OS tag-replace is unreliable (iOS).
-                    try { for (const n of await reg.getNotifications({tag: opts.tag})) n.close(); } catch { /* ignore */ }
-                    await reg.showNotification(title, opts);
+                .then((reg) => {
+                    const sw = reg.active;
+                    if (sw) {
+                        // Route through the arbiter. It dedups by messageId against any Web Push for
+                        // the same message and renders exactly one notification.
+                        sw.postMessage({type: "show-notification", payload});
+                    } else {
+                        // No active worker yet → show directly (best-effort; no Web Push either).
+                        reg.showNotification(title, buildFallbackOptions(base, body, payload)).catch(() => {});
+                    }
                 })
-                .catch(() => { try { new Notification(title, opts); } catch { /* ignore */ } });
+                .catch(() => { try { new Notification(title, buildFallbackOptions(base, body, payload)); } catch { /* ignore */ } });
             return;
         }
-        new Notification(title, opts);
+        new Notification(title, buildFallbackOptions(base, body, payload));
     } catch { /* ignore */ }
+}
+
+function buildFallbackOptions(base: string, body: string, payload: {tag: string; data: unknown}): NotificationOptions {
+    return {
+        body,
+        icon: `${base}pwa-192x192.png`,
+        badge: `${base}pwa-192x192.png`,
+        tag: payload.tag,
+        renotify: true,
+        data: payload.data,
+    } as NotificationOptions;
 }
