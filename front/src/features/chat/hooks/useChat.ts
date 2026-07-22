@@ -198,6 +198,20 @@ export function useChat() {
         return () => document.removeEventListener("visibilitychange", onVisible);
     }, [selectedChatId, markRead, getSummary, dispatch, lastReadMessageId]);
 
+    // (Re)send READ_IN whenever we become CONNECTED with the open chat visible. READ_IN is
+    // fire-and-forget over the WS with no retry, so one dispatched while the socket was still
+    // reconnecting/suspended (exactly the resume-from-background case) is silently dropped and the
+    // peer's ✓✓ never advances — "no read event on resume". Re-sending on connect delivers it.
+    // Idempotent (backend advances the watermark by GREATEST).
+    useEffect(() => {
+        if (wsStatus !== "connected" || !selectedChatId) return;
+        if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+        const boundary = lastReadMessageId(selectedChatId);
+        if (!boundary) return;
+        const s = getSummary(selectedChatId);
+        if (s) dispatch({type: "ws/send", payload: buildReadIn(selectedChatId, s.counterpartId, boundary)});
+    }, [wsStatus, selectedChatId, lastReadMessageId, getSummary, dispatch]);
+
     // Report "read up to the newest message" whenever the OPEN + visible chat has messages. This is
     // the key trigger for the peer's ✓✓: openChat fires a read BEFORE the history is fetched (empty
     // boundary), so we also (re)send once the history — and each later arrival — is present, carrying

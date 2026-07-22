@@ -1,22 +1,20 @@
 import {createAsyncThunk} from "@reduxjs/toolkit";
 import {markSending, markFailed} from "../model/slices/outboxSlice.ts";
 import type {RootState} from "@/store/store";
-import {OUTBOX_RETRY_MAX_ATTEMPTS, OUTBOX_SEND_TIMEOUT_MS} from "@/shared/config/outbox.ts";
+import {OUTBOX_RETRY_MAX_ATTEMPTS, OUTBOX_ACK_RESEND_MS} from "@/shared/config/outbox.ts";
 
-// Push queued CHAT_IN frames over the WebSocket with duplicate-safe, at-least-once-per-epoch
-// delivery. Delivery is confirmed out-of-band by the server CHAT_ACK (correlationId === the client
-// messageId → outbox markSent, which removes the row).
+// Push queued CHAT_IN frames over the WebSocket, DELIVERY-FIRST. Delivery is confirmed out-of-band by
+// the server CHAT_ACK (correlationId === client messageId → markSent removes the row).
 //
-// IMPORTANT: the backend assigns its OWN messageId to each inbound frame and does NOT dedupe by the
-// client messageId (verified against the messenger backend + a live two-account smoke). So blindly
-// re-sending an un-ACKed message would create a DUPLICATE on the server. To stay safe we resend a
-// message at most ONCE PER CONNECTION EPOCH: a frame already sent on the current (still-open) socket
-// is considered delivered (TCP) and is left waiting for its ACK — never re-sent. Only a reconnect
-// (new ws.epoch) makes an un-ACKed message eligible to send again, because a dropped socket is the
-// one case where the frame may genuinely not have reached the server. Attempts are capped, then the
-// message is marked failed.
+// Priority: NEVER LOSE a message, over avoiding a server-side duplicate. The previous "resend at most
+// once per connection epoch" meant a send swallowed by a half-dead-but-still-"OPEN" socket was never
+// re-sent until a reconnect → it could be lost outright. Now an un-ACKed message is RESENT every
+// OUTBOX_ACK_RESEND_MS on the SAME connection, up to MAX_ATTEMPTS, then marked failed (⚠ + manual
+// retry). The client messageId is STABLE across resends, so any duplicate this creates is collapsed
+// client-side by client_message_id (dedupMessages + the middleware live-append) and eliminated at the
+// source once the backend ingests idempotently by (conversation_id, client_message_id).
 //
-// This runs on enqueue, on (re)connect, and on a periodic tick (useOutboxRetry).
+// Runs on enqueue, on (re)connect, and on a periodic tick (useOutboxRetry).
 export const flushOutbox = createAsyncThunk<void, void, { state: RootState }>(
     "outbox/flush",
     async (_, {getState, dispatch}) => {
@@ -28,27 +26,22 @@ export const flushOutbox = createAsyncThunk<void, void, { state: RootState }>(
         for (const msg of state.outbox.messages) {
             if (msg.status === "sent" || msg.status === "failed") continue;
 
-            // Sent on a live connection but no ACK for too long (lost ACK, or a blocked/rejected
-            // send) → surface it as failed (⚠ + retry) instead of a permanent 🕐.
+            // Sent recently and still within the ACK window — wait for the ACK, don't resend yet.
             if (
                 msg.status === "sending" &&
                 msg.lastAttemptAt !== undefined &&
-                now - msg.lastAttemptAt >= OUTBOX_SEND_TIMEOUT_MS
+                now - msg.lastAttemptAt < OUTBOX_ACK_RESEND_MS
             ) {
-                dispatch(markFailed(msg.id));
                 continue;
             }
 
-            // Already sent on THIS connection and still within the ACK window — delivered over TCP,
-            // just awaiting the ACK. Do not resend (that would duplicate it server-side).
-            if (msg.sentEpoch === epoch) continue;
-
-            // Retries (across reconnects) exhausted — stop and surface the failure.
+            // Out of retries — surface the failure (⚠ + manual retry) instead of resending forever.
             if (msg.attempts >= OUTBOX_RETRY_MAX_ATTEMPTS) {
                 dispatch(markFailed(msg.id));
                 continue;
             }
 
+            // Send (pending) or RESEND (sending past the ACK window) — delivery-first.
             dispatch(markSending({id: msg.id, at: now, epoch}));
             dispatch({type: "ws/send", payload: msg.payload});
         }
