@@ -5,20 +5,20 @@ import type {AppDispatch, RootState} from "@/store/store";
 import {isUlid} from "@/shared/ulid/ulid.ts";
 
 import {useChatMessages} from "./useChatMessages";
+import {useChatAttachments} from "./useChatAttachments";
 import {useUnreadChats} from "./useUnreadChats";
 import {useContacts} from "../../contacts/hooks/useContacts.ts";
 
 import {logger} from "@/shared/logger/logger.ts";
 import type {Contact} from "@/features/contacts/model/schema/domainContract.schema.ts";
 import {chatMessagesService} from "@/features/chat/model/services/chatMessages.service.ts";
-import {chatApi, useBlockChatMutation, useUnblockChatMutation, useDeleteMessageMutation, useAttachmentUploadUrlMutation, useAttachmentConfirmMutation, useAttachmentDownloadUrlMutation} from "@/features/chat/rest/chatApi.ts";
+import {chatApi, useBlockChatMutation, useUnblockChatMutation, useDeleteMessageMutation} from "@/features/chat/rest/chatApi.ts";
 import {retryMessage as retryOutboxMessage, discardMessage as discardOutboxMessage} from "@/features/chat/model/slices/outboxSlice.ts";
 import type {ChatMessageStatus} from "@/features/chat/model/types.ts";
 import toast from "react-hot-toast";
 import {useTranslation} from "react-i18next";
 import {buildReadIn, buildTypingIn} from "@/features/chat/model/schema/wireMessage.schema.ts";
 import {flushOutbox} from "@/features/chat/thunk/sendOutboxThunk.ts";
-import {MAX_ATTACHMENT_BYTES} from "@/shared/config/chat.ts";
 
 
 export function useChat() {
@@ -31,7 +31,6 @@ export function useChat() {
     ====================== */
     const [messageInput, setMessageInput] = useState("");
     const [searchQuery, setSearchQuery] = useState("");
-    const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
     /* ======================
        Global state
@@ -61,13 +60,14 @@ export function useChat() {
     const [blockChat] = useBlockChatMutation();
     const [unblockChat] = useUnblockChatMutation();
     const [deleteMessageMut] = useDeleteMessageMutation();
-    const [uploadUrlMut] = useAttachmentUploadUrlMutation();
-    const [confirmMut] = useAttachmentConfirmMutation();
-    const [downloadUrlMut] = useAttachmentDownloadUrlMutation();
 
     // Declared before the handlers that reference them (reloadChatHistory/clearChat/markRead).
     const {unreadChats, markRead} = useUnreadChats();
     const {messages, isError: historyError, reloadChatHistory, clearChat} = useChatMessages();
+
+    // Attachment lifecycle (upload/download/resolve + progress) lives in its own hook.
+    const {uploadProgress, sendAttachment, downloadAttachment, getAttachmentUrl} =
+        useChatAttachments(selectedChatId, reloadChatHistory);
 
     const filteredChats = useMemo(
         () =>
@@ -128,65 +128,6 @@ export function useChat() {
         }
     }, [selectedChatId, deleteMessageMut, t]);
 
-    const sendAttachment = useCallback(async (file: File) => {
-        if (!selectedChatId || !file) return;
-        if (file.size > MAX_ATTACHMENT_BYTES) {
-            toast.error(t("chat.fileTooLarge", {mb: Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}));
-            return;
-        }
-        const contentType = file.type || "application/octet-stream";
-        setUploadProgress(0);
-        try {
-            const up = await uploadUrlMut({
-                chatId: selectedChatId, fileName: file.name, contentType, sizeBytes: file.size,
-            }).unwrap();
-            // XHR (not fetch) so we can report upload progress to the composer.
-            await new Promise<void>((resolve, reject) => {
-                const xhr = new XMLHttpRequest();
-                xhr.open(up.method || "PUT", up.uploadUrl);
-                xhr.setRequestHeader("Content-Type", contentType);
-                xhr.upload.onprogress = (e) => {
-                    if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100));
-                };
-                xhr.onload = () =>
-                    xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error("upload PUT " + xhr.status));
-                xhr.onerror = () => reject(new Error("upload network error"));
-                xhr.send(file);
-            });
-            await confirmMut({chatId: selectedChatId, attachmentId: up.attachmentId}).unwrap();
-            reloadChatHistory().catch(() => {});
-            toast.success(t("chat.fileSent"));
-        } catch (e) {
-            logger.error("sendAttachment failed", e as Error);
-            toast.error(t("chat.fileError"));
-        } finally {
-            setUploadProgress(null);
-        }
-    }, [selectedChatId, uploadUrlMut, confirmMut, reloadChatHistory, t]);
-
-    const downloadAttachment = useCallback(async (attachmentId: string) => {
-        if (!selectedChatId || !attachmentId) return;
-        try {
-            const r = await downloadUrlMut({chatId: selectedChatId, attachmentId}).unwrap();
-            window.open(r.downloadUrl, "_blank", "noopener");
-        } catch (e) {
-            logger.error("downloadAttachment failed", e as Error);
-            toast.error(t("chat.downloadError"));
-        }
-    }, [selectedChatId, downloadUrlMut, t]);
-
-    // Resolve a fresh presigned GET URL (for inline image previews). Presigned URLs
-    // expire (download-ttl-seconds), so the caller fetches on render rather than caching.
-    const getAttachmentUrl = useCallback(async (attachmentId: string): Promise<string | null> => {
-        if (!selectedChatId || !attachmentId) return null;
-        try {
-            const r = await downloadUrlMut({chatId: selectedChatId, attachmentId}).unwrap();
-            return r.downloadUrl;
-        } catch (e) {
-            logger.error("getAttachmentUrl failed", e as Error);
-            return null;
-        }
-    }, [selectedChatId, downloadUrlMut]);
 
     // Incoming CHAT_OUT / CHAT_ACK / READ_OUT / TYPING_OUT are handled per-frame in chatMiddleware
     // (not a lastIncoming effect), so bursts of frames are never dropped.
