@@ -1,12 +1,14 @@
 import {describe, it, expect, vi} from "vitest";
 import {flushOutbox} from "../sendOutboxThunk";
-import {OUTBOX_RETRY_MAX_ATTEMPTS} from "@/shared/config/outbox";
+import {OUTBOX_RETRY_MAX_ATTEMPTS, OUTBOX_ACK_RESEND_MS} from "@/shared/config/outbox";
 
-// Duplicate-safe resend: the backend assigns its own messageId and does NOT dedupe by the client
-// messageId, so a message already sent on the current connection epoch must NOT be re-sent.
+// Delivery-first resend: an un-ACKed "sending" message is RESENT on the SAME connection once the ACK
+// window (OUTBOX_ACK_RESEND_MS) elapses, up to MAX_ATTEMPTS, then marked failed. Within the window we
+// wait for the CHAT_ACK and do NOT resend. This favors never LOSING a message over avoiding a
+// server-side duplicate (duplicates are collapsed client-side by the stable client messageId).
 type Msg = {
     id: string; idempotencyKey: string; payload: unknown; status: string;
-    attempts: number; sentEpoch?: number;
+    attempts: number; sentEpoch?: number; lastAttemptAt?: number;
 };
 
 function run(state: { ws: { status: string; epoch: number }; outbox: { messages: Msg[] } }) {
@@ -27,7 +29,9 @@ const msg = (over: Partial<Msg> = {}): Msg => ({
     id: "m1", idempotencyKey: "m1", payload: {type: "CHAT_IN"}, status: "pending", attempts: 0, ...over,
 });
 
-describe("flushOutbox (duplicate-safe, once-per-epoch)", () => {
+const ago = (ms: number) => Date.now() - ms;
+
+describe("flushOutbox (delivery-first)", () => {
     it("does nothing when disconnected", async () => {
         const d = await run({ws: {status: "disconnected", epoch: 3}, outbox: {messages: [msg()]}});
         expect(sends(d)).toHaveLength(0);
@@ -40,19 +44,30 @@ describe("flushOutbox (duplicate-safe, once-per-epoch)", () => {
         expect(marksSending(d)[0].payload).toMatchObject({id: "m1", epoch: 5});
     });
 
-    it("does NOT resend a message already sent on the current epoch (avoids duplicate)", async () => {
+    it("does NOT resend within the ACK window (waits for CHAT_ACK)", async () => {
         const d = await run({
             ws: {status: "connected", epoch: 5},
-            outbox: {messages: [msg({status: "sending", attempts: 1, sentEpoch: 5})]},
+            outbox: {messages: [msg({status: "sending", attempts: 1, sentEpoch: 5, lastAttemptAt: ago(1_000)})]},
         });
         expect(sends(d)).toHaveLength(0);
         expect(marksSending(d)).toHaveLength(0);
     });
 
+    it("RESENDS an un-ACKed message past the ACK window on the SAME epoch (never lose)", async () => {
+        const d = await run({
+            ws: {status: "connected", epoch: 5},
+            outbox: {messages: [msg({status: "sending", attempts: 1, sentEpoch: 5,
+                lastAttemptAt: ago(OUTBOX_ACK_RESEND_MS + 1_000)})]},
+        });
+        expect(sends(d)).toHaveLength(1);
+        expect(marksSending(d)[0].payload).toMatchObject({id: "m1", epoch: 5});
+    });
+
     it("resends an un-ACKed message after a reconnect (newer epoch)", async () => {
         const d = await run({
             ws: {status: "connected", epoch: 6},
-            outbox: {messages: [msg({status: "sending", attempts: 1, sentEpoch: 5})]},
+            outbox: {messages: [msg({status: "sending", attempts: 1, sentEpoch: 5,
+                lastAttemptAt: ago(OUTBOX_ACK_RESEND_MS + 1_000)})]},
         });
         expect(sends(d)).toHaveLength(1);
         expect(marksSending(d)[0].payload).toMatchObject({id: "m1", epoch: 6});
@@ -61,7 +76,8 @@ describe("flushOutbox (duplicate-safe, once-per-epoch)", () => {
     it("gives up (markFailed) once attempts hit the cap, without sending", async () => {
         const d = await run({
             ws: {status: "connected", epoch: 9},
-            outbox: {messages: [msg({status: "sending", attempts: OUTBOX_RETRY_MAX_ATTEMPTS, sentEpoch: 1})]},
+            outbox: {messages: [msg({status: "sending", attempts: OUTBOX_RETRY_MAX_ATTEMPTS, sentEpoch: 1,
+                lastAttemptAt: ago(OUTBOX_ACK_RESEND_MS + 1_000)})]},
         });
         expect(sends(d)).toHaveLength(0);
         expect(marksFailed(d)[0].payload).toBe("m1");
